@@ -8,7 +8,6 @@ from torch import nn
 import matplotlib.pyplot as plt
 
 
-
 #We define the training as a function so we can easily re-use it.
 def train(model, optimizer, num_epochs=10, save_name_model="model", train_loader=None, val_loader=None, trainset=None, valset=None, device='cuda'):
     # Define the loss function outside the loop
