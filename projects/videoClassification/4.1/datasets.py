@@ -5,6 +5,7 @@ from PIL import Image
 import torch
 from torchvision import transforms as T
 
+
 class FrameImageDataset(torch.utils.data.Dataset):
     def __init__(self, 
     root_dir='/work3/ppar/data/ucf101',
@@ -45,7 +46,6 @@ class FrameVideoDataset(torch.utils.data.Dataset):
     transform = None,
     stack_frames = True
 ):
-
         self.video_paths = sorted(glob(f'{root_dir}/videos/{split}/*/*.avi'))
         self.df = pd.read_csv(f'{root_dir}/metadata/{split}.csv')
         self.split = split
