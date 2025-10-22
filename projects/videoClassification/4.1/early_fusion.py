@@ -22,13 +22,19 @@ class EarlyFusion(nn.Module):
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1, 1))  # Output shape: (256, 1, 1)
+            nn.MaxPool2d(2),  # Downsample (H/8, W/8)
+            nn.Dropout2d(p_dropout),
+
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1))  # Output shape: (512, 1, 1)
         )
 
         # Fully Connected Layer for aggregated features
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(256, 128),
+            nn.Linear(512, 128),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Linear(128, num_classes)
