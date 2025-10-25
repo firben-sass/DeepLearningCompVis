@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class Simple3DCNN(nn.Module):
-    def __init__(self, num_classes=101, in_channels=3, p_dropout=0.25):
+    def __init__(self, num_classes=10, in_channels=3, p_dropout=0.25):
         super().__init__()
         
         self.features = nn.Sequential(
@@ -12,23 +12,27 @@ class Simple3DCNN(nn.Module):
             nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)),
             nn.Dropout3d(p_dropout),
             
-            # Block 2
             nn.Conv3d(64, 128, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
             nn.BatchNorm3d(128),
             nn.ReLU(inplace=True),
             nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)),
             nn.Dropout3d(p_dropout),
-            
-            # Block 3
+
             nn.Conv3d(128, 256, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
             nn.BatchNorm3d(256),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2)),
+            nn.Dropout3d(p_dropout),
+            
+            nn.Conv3d(256, 512, kernel_size=(3, 3, 3), padding=(1, 1, 1)),
+            nn.BatchNorm3d(512),
             nn.ReLU(inplace=True),
             
             nn.AdaptiveAvgPool3d((1, 1, 1))
         )
         
         self.classifier = nn.Sequential(
-            nn.Linear(256, 128),
+            nn.Linear(512, 128),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
             nn.Linear(128, num_classes)
