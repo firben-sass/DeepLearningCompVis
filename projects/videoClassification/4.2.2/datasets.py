@@ -40,7 +40,7 @@ class FrameImageDataset(torch.utils.data.Dataset):
         return frame, label
 
 
-class FrameVideoDataset(torch.utils.data.Dataset):
+class FrameImageDataset(torch.utils.data.Dataset):
     def __init__(self, 
     root_dir = '/work3/ppar/data/ucf101', 
     split = 'train', 
@@ -134,8 +134,8 @@ if __name__ == '__main__':
 
     transform = T.Compose([T.Resize((64, 64)),T.ToTensor()])
     frameimage_dataset = FrameImageDataset(root_dir=root_dir, split='val', transform=transform)
-    framevideostack_dataset = FrameVideoDataset(root_dir=root_dir, split='val', transform=transform, stack_frames = True)
-    framevideolist_dataset = FrameVideoDataset(root_dir=root_dir, split='val', transform=transform, stack_frames = False)
+    framevideostack_dataset = FrameImageDataset(root_dir=root_dir, split='val', transform=transform, stack_frames = True)
+    framevideolist_dataset = FrameImageDataset(root_dir=root_dir, split='val', transform=transform, stack_frames = False)
 
 
     frameimage_loader = DataLoader(frameimage_dataset,  batch_size=8, shuffle=False)
