@@ -15,5 +15,5 @@
 #BSUB -o batch_output/OUTPUT_FILE%J.out
 #BSUB -e batch_output/OUTPUT_FILE%J.err
 
-source /work3/s204164/work3/s204164/bin/activate
+source /work3/s204164/work3/s204164/envs/IDLCV/bin/activate
 python -u /work3/s204164/DeepLearningCompVis/projects/videoClassification/4.1/train_per_frame.py
