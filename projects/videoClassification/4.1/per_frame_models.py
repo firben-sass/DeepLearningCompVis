@@ -10,10 +10,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms as T
 from tqdm.auto import tqdm
 
-try:
-	from .datasets import FrameImageDataset
-except ImportError:  # pragma: no cover - fallback when module run as script
-	from datasets import FrameImageDataset
+from datasets import FrameImageDataset
 
 
 class SimplePerFrameCNN(nn.Module):
