@@ -15,6 +15,8 @@ class FrameImageDataset(torch.utils.data.Dataset):
         self.df = pd.read_csv(f'{root_dir}/metadata/{split}.csv')
         self.split = split
         self.transform = transform
+        print(f"Found {len(self.frame_paths)} frames in {root_dir}/{split}")
+
        
     def __len__(self):
         return len(self.frame_paths)
@@ -89,11 +91,46 @@ class FrameVideoDataset(torch.utils.data.Dataset):
 
         return frames
 
+class OpticalFlowDataset(torch.utils.data.Dataset):
+    def __init__(self, root_dir, split='train', transform=None, n_frames=10):
+        self.root_dir = os.path.join(root_dir, f"flows_png/{split}")
+        self.transform = transform
+        self.n_frames = n_frames
+
+        # Get all video folders
+        self.video_paths = sorted(glob(os.path.join(self.root_dir, '*', '*')))  # class_name/video_name
+        self.classes = sorted(list(set([vp.split('/')[-2] for vp in self.video_paths])))
+        self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
+
+    def __len__(self):
+        return len(self.video_paths)
+
+    def __getitem__(self, idx):
+        video_path = self.video_paths[idx]
+        label = self.class_to_idx[video_path.split('/')[-2]]
+
+        # Get all flow frames in the video folder, sorted
+        flow_files = sorted(glob(os.path.join(video_path, 'flow_*.png')))
+        if len(flow_files) == 0:
+            raise FileNotFoundError(f"No flow frames found in {video_path}")
+
+        frames = []
+        for flow_file in flow_files:
+            img = Image.open(flow_file).convert('L')  # single-channel flow
+            if self.transform:
+                img = self.transform(img)
+            else:
+                img = T.ToTensor()(img)
+            frames.append(img)
+
+        # Stack frames along channel dimension: [C=number of frames, H, W]
+        frames = torch.cat(frames, dim=0)
+        return frames, label
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
 
-    root_dir = '/work3/ppar/data/ucf101'
+    root_dir = '/home/datawa/Repositories/ucf101_noleakage'
 
     transform = T.Compose([T.Resize((64, 64)),T.ToTensor()])
     frameimage_dataset = FrameImageDataset(root_dir=root_dir, split='val', transform=transform)
