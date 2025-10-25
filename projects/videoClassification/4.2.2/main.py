@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from optical_model import OpticalStream
 from temporal_model import TemporalStream
 from dual_model import DualStreamNetwork
@@ -28,23 +29,22 @@ def create_models(classes=10):
     '''
     optical_stream_model = None
     temporal_stream_model = None
-    dual_stream_model = None
     try:
         # Checking optical shape
         logging.info("Creating models...")
         optical_stream_model = OpticalStream(num_classes=classes)
-        rgb_sample = torch.randn(1, 3, 224, 224)
-        op_out = optical_stream_model(rgb_sample)
-        logging.info(f"Created optical model. Fast check with input {rgb_sample.shape} = {op_out.shape})")
+        #rgb_sample = torch.randn(1, 3, 224, 224)
+        #op_out = optical_stream_model(rgb_sample)
+        logging.info(f"Created optical model.")
         
         # Checking temporal shape
         temporal_stream_model = TemporalStream(num_classes=classes, num_channels=18)
-        flow_sample = torch.randn(1, 18, 224, 224)
-        temp_out = temporal_stream_model(flow_sample)
-        logging.info(f"Created temporal model. Fast check with input {flow_sample.shape} = {temp_out.shape})")
+        #flow_sample = torch.randn(1, 18, 224, 224)
+        #temp_out = temporal_stream_model(flow_sample)
+        logging.info(f"Created temporal model")
     except Exception as e:
         logging.error(f"Error checking model: {e}")
-    return optical_stream_model, temporal_stream_model, dual_stream_model
+    return optical_stream_model, temporal_stream_model
 
 def load_rgb_data(batch_size=64, image_size=224):
     logging.info("Loading RGB dataset")
@@ -175,16 +175,16 @@ def train_temporal_model(model:TemporalStream,
     return out_dict
     
 def main():
-    optical_model, temporal_model, _= create_models()
-    #frame_trainset, frame_valset, frame_testset, train_frame_loader, val_frame_loader, test_frame_loader= load_rgb_data(batch_size=64, image_size=224)
+    # Create models
+    optical_model, temporal_model = create_models(classes=10)
+    frame_trainset, frame_valset, frame_testset, train_frame_loader, val_frame_loader, test_frame_loader= load_rgb_data(batch_size=8, image_size=224)
     flow_trainset, flow_valset, flow_testset, train_flow_loader, val_flow_loader, test_flow_loader= load_flow_data(batch_size=64, image_size=224)
     
-    data, label = next(iter(train_flow_loader))
-    print(data.shape, label.shape)
-    optimizer = torch.optim.Adam(optical_model.parameters(), lr=0.0001)
-    #optical_results = train_optical_model(optical_model, optimizer, train_frame_loader, val_frame_loader, frame_trainset, frame_valset,"cuda",500)
+    optimizer = optim.Adam(optical_model.parameters(), lr=0.0001) 
+    optical_results = train_optical_model(optical_model, optimizer, train_frame_loader, val_frame_loader, frame_trainset, frame_valset,"cuda",500)
+
     temporal_results = train_temporal_model(temporal_model, optimizer, train_flow_loader, val_flow_loader, flow_trainset, flow_valset,"cuda",500)
-    #results = train_dualstream(dual_stream_model, optimizer, train_frame_loader, train_flow_loader, val_frame_loader, val_flow_loader, frame_trainset, frame_valset, "gpu",5)
+    results = train_dualstream(dual_stream_model, optimizer, train_frame_loader, train_flow_loader, val_frame_loader, val_flow_loader, frame_trainset, frame_valset, "gpu",5)
 
     #plot_and_save_loss_accuracy(results, plotspath)
             

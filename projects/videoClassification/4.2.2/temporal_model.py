@@ -23,12 +23,6 @@ class TemporalStream(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2)
         )
-        # Dummy forward to infer output size dynamically
-        with torch.no_grad():
-            dummy = torch.zeros(1, num_channels, 224, 224)  # same as your input size
-            conv_out = self.convolutional(dummy)
-            self.flatten_dim = conv_out.view(1, -1).shape[1]
-            print(f"[INFO] Flattened feature dimension: {self.flatten_dim}")
 
         self.fully_connected = nn.Sequential(
             nn.Linear(7*7*512, 4096), #full6
