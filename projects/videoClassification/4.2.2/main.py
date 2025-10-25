@@ -127,6 +127,7 @@ def train_optical_model(model:OpticalStream, optimizer, train_loader, val_loader
             torch.save(model.state_dict(), f"{SAVE_MODELS__DIR}/optical_best.pt")
             print(f"Saved new best model with val_acc={val_acc*100:.2f}%")
     return out_dict
+
 def train_temporal_model(model:TemporalStream, 
                         optimizer, 
                         train_loader,
@@ -188,6 +189,26 @@ def train_temporal_model(model:TemporalStream,
             print(f"Saved new best model with val_acc={val_acc*100:.2f}%")
 
     return out_dict
+
+def train_fusion_model(model, optimizer, criterion, train_loader, val_loader, device, num_epochs=10):
+    model.to(device)
+    for epoch in range(num_epochs):
+        model.train()
+        train_correct, train_loss = 0, []
+
+        for rgb_data, flow_data, target in train_loader:
+            rgb_data, flow_data, target = rgb_data.to(device), flow_data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(rgb_data, flow_data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+
+            train_loss.append(loss.item())
+            train_correct += (output.argmax(1) == target).sum().item()
+
+        print(f"Epoch {epoch+1}: Train loss {np.mean(train_loss):.3f} | Train acc {train_correct/len(train_loader.dataset)*100:.2f}%")
+
     
 def main():
     # Create models
