@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover - allow script usage
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--root_dir", default="/work3/ppar/data/ucf101")
+	parser.add_argument("--root_dir", default="../data")
 	parser.add_argument("--batch_size", type=int, default=64)
 	parser.add_argument("--epochs", type=int, default=1)
 	parser.add_argument("--lr", type=float, default=1e-3)
