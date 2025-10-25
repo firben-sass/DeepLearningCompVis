@@ -4,6 +4,9 @@ import pandas as pd
 from PIL import Image
 import torch
 from torchvision import transforms as T
+import numpy as np
+import torch.nn.functional as F
+
 
 class FrameImageDataset(torch.utils.data.Dataset):
     def __init__(self, 
@@ -15,8 +18,6 @@ class FrameImageDataset(torch.utils.data.Dataset):
         self.df = pd.read_csv(f'{root_dir}/metadata/{split}.csv')
         self.split = split
         self.transform = transform
-        print(f"Found {len(self.frame_paths)} frames in {root_dir}/{split}")
-
        
     def __len__(self):
         return len(self.frame_paths)
@@ -40,7 +41,7 @@ class FrameImageDataset(torch.utils.data.Dataset):
         return frame, label
 
 
-class FrameImageDataset(torch.utils.data.Dataset):
+class FrameVideoDataset(torch.utils.data.Dataset):
     def __init__(self, 
     root_dir = '/work3/ppar/data/ucf101', 
     split = 'train', 
@@ -92,13 +93,13 @@ class FrameImageDataset(torch.utils.data.Dataset):
         return frames
 
 class OpticalFlowDataset(torch.utils.data.Dataset):
-    def __init__(self, root_dir, split='train', transform=None, n_frames=10):
-        self.root_dir = os.path.join(root_dir, f"flows_png/{split}")
-        self.transform = transform
+    def __init__(self, root_dir, split='train', image_size=224, n_frames=10):
+        self.root_dir = os.path.join(root_dir, f"flows/{split}")
+        self.image_size = image_size
         self.n_frames = n_frames
 
-        # Get all video folders
-        self.video_paths = sorted(glob(os.path.join(self.root_dir, '*', '*')))  # class_name/video_name
+        # video directories
+        self.video_paths = sorted(glob(os.path.join(self.root_dir, '*', '*')))
         self.classes = sorted(list(set([vp.split('/')[-2] for vp in self.video_paths])))
         self.class_to_idx = {cls_name: idx for idx, cls_name in enumerate(self.classes)}
 
@@ -109,23 +110,28 @@ class OpticalFlowDataset(torch.utils.data.Dataset):
         video_path = self.video_paths[idx]
         label = self.class_to_idx[video_path.split('/')[-2]]
 
-        # Get all flow frames in the video folder, sorted
-        flow_files = sorted(glob(os.path.join(video_path, 'flow_*.png')))
+        flow_files = sorted(glob(os.path.join(video_path, 'flow_*.npy')))
         if len(flow_files) == 0:
             raise FileNotFoundError(f"No flow frames found in {video_path}")
 
-        frames = []
+        flows = []
         for flow_file in flow_files:
-            img = Image.open(flow_file).convert('L')  # single-channel flow
-            if self.transform:
-                img = self.transform(img)
-            else:
-                img = T.ToTensor()(img)
-            frames.append(img)
+            flow = np.load(flow_file)               # shape (2, H, W)
+            flow = torch.from_numpy(flow).float()   # tensor [2, H, W]
 
-        # Stack frames along channel dimension: [C=number of frames, H, W]
-        frames = torch.cat(frames, dim=0)
-        return frames, label
+            # Resize to (image_size, image_size)
+            flow = F.interpolate(
+                flow.unsqueeze(0), 
+                size=(self.image_size, self.image_size),
+                mode='bilinear',
+                align_corners=False
+            ).squeeze(0)
+
+            flows.append(flow)
+
+        # stack in temporal dimension -> [2*(T-1), H, W]
+        flows = torch.cat(flows, dim=0)
+        return flows, label
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
