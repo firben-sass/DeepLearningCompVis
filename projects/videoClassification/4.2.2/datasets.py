@@ -118,6 +118,7 @@ class OpticalFlowDataset(torch.utils.data.Dataset):
         for flow_file in flow_files:
             flow = np.load(flow_file)               # shape (2, H, W)
             flow = torch.from_numpy(flow).float()   # tensor [2, H, W]
+            flow = torch.clamp(flow, -20, 20) / 20.0
 
             # Resize to (image_size, image_size)
             flow = F.interpolate(
