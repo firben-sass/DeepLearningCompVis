@@ -51,15 +51,15 @@ def create_models(classes=10):
         logging.error(f"Error chechking models dual stream model: {e}")
     return optical_stream_model, temporal_stream_model, dual_stream_model
 
-def load_frame_dataset(batch_size=64, image_size=224):
+def load_frame_dataset(batch_size=64, image_size=112):
     logging.info("Loading RGB dataset")
     transform = T.Compose([T.Resize((image_size, image_size)),T.ToTensor()])
     # Train 
     trainset = FrameImageDataset(root_dir=DATASET_ROOT_DIR, split='train', transform=transform)
-    train_loader = DataLoader(trainset,  batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(trainset,  batch_size=batch_size, shuffle=False, num_workers=4)
     # Val
     valset = FrameImageDataset(root_dir=DATASET_ROOT_DIR, split='val', transform=transform)
-    val_loader = DataLoader(valset,  batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(valset,  batch_size=batch_size, shuffle=False, num_workers=4)
     # Test
     testset = FrameImageDataset(root_dir=DATASET_ROOT_DIR, split='test', transform=transform)
     test_loader = DataLoader(testset,  batch_size=batch_size, shuffle=False)
@@ -82,10 +82,9 @@ def load_flow_dataset(batch_size=16, image_size=224):
 def train_optical_model(model:OpticalStream, optimizer, train_loader, val_loader, trainset, valset,
                      device, num_epochs=10):
     
-    def loss_fun(output, target):
-        return F.nll_loss(torch.log(output), target) 
+    criterion = nn.CrossEntropyLoss()
 
-    out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'test_loss': []}
+    out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'val_loss': []}
 
     for epoch in range(num_epochs):
         model.train()
@@ -93,37 +92,38 @@ def train_optical_model(model:OpticalStream, optimizer, train_loader, val_loader
         train_loss = []
 
         # --- Training loop ---
-        for _, data, labels in enumerate(train_loader):
-            data, labels = data.to(device), labels.to(device)
+        for minibatch_no, (data, target) in enumerate(train_loader):
+            data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
             output = model(data)  # Forward pass dual stream
-            loss = loss_fun(output, labels)
+
+            loss = criterion(output, target)
             loss.backward()
             optimizer.step()
 
             train_loss.append(loss.item())
             predicted = output.argmax(1)
-            train_correct += (predicted == labels).sum().cpu().item()
+            train_correct += (target == predicted).sum().cpu().item()
 
         # --- Validation loop ---
         model.eval()
-        test_loss = []
-        test_correct = 0
-        for _, data, labels in enumerate(val_loader):
-            data, labels = data.to(device), labels.to(device)
+        val_loss = []
+        val_correct = 0
+        for data, target in val_loader:
+            data, target = data.to(device), target.to(device)
             with torch.no_grad():
                 output = model(data)
-            test_loss.append(loss_fun(output, labels).cpu().item())
+            val_loss.append(criterion(output, target).cpu().item())
             predicted = output.argmax(1)
-            test_correct += (predicted == labels).sum().cpu().item()
+            val_correct += (target == predicted).sum().cpu().item()
 
         # --- Logging ---
         out_dict['train_acc'].append(train_correct / len(trainset))
-        out_dict['test_acc'].append(test_correct / len(valset))
+        out_dict['test_acc'].append(val_correct / len(valset))
         out_dict['train_loss'].append(np.mean(train_loss))
-        out_dict['test_loss'].append(np.mean(test_loss))
+        out_dict['val_loss'].append(np.mean(val_loss))
 
-        print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(test_loss):.3f} | "
+        print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(val_loss):.3f} | "
               f"Accuracy train {out_dict['train_acc'][-1]*100:.1f}%, test {out_dict['test_acc'][-1]*100:.1f}%")
 
     return out_dict
@@ -136,7 +136,7 @@ def train_dualstream(model:DualStreamNetwork, optimizer, train_rgb_loader, train
     def loss_fun(output, target):
         return F.nll_loss(torch.log(output), target) 
 
-    out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'test_loss': []}
+    out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'val_loss': []}
 
     for epoch in range(num_epochs):
         model.train()
@@ -158,23 +158,23 @@ def train_dualstream(model:DualStreamNetwork, optimizer, train_rgb_loader, train
 
         # --- Validation loop ---
         model.eval()
-        test_loss = []
-        test_correct = 0
+        val_loss = []
+        val_correct = 0
         for (rgb_data, labels), (flow_data, _) in zip(val_rgb_loader, val_flow_loader):
             rgb_data, flow_data, labels = rgb_data.to(device), flow_data.to(device), labels.to(device)
             with torch.no_grad():
                 output = model(rgb_data, flow_data)
-            test_loss.append(loss_fun(output, labels).cpu().item())
+            val_loss.append(loss_fun(output, labels).cpu().item())
             predicted = output.argmax(1)
-            test_correct += (predicted == labels).sum().cpu().item()
+            val_correct += (predicted == labels).sum().cpu().item()
 
         # --- Logging ---
         out_dict['train_acc'].append(train_correct / len(trainset))
-        out_dict['test_acc'].append(test_correct / len(valset))
+        out_dict['test_acc'].append(val_correct / len(valset))
         out_dict['train_loss'].append(np.mean(train_loss))
-        out_dict['test_loss'].append(np.mean(test_loss))
+        out_dict['val_loss'].append(np.mean(val_loss))
 
-        print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(test_loss):.3f} | "
+        print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(val_loss):.3f} | "
               f"Accuracy train {out_dict['train_acc'][-1]*100:.1f}%, test {out_dict['test_acc'][-1]*100:.1f}%")
 
     return out_dict
@@ -193,7 +193,7 @@ def main():
     #    logging.info(f"{flow.shape}{labels.shape}") # [batch, channels, height, width]
     
 
-    optimizer = torch.optim.Adam(optical_model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(optical_model.parameters(), lr=0.001)
     optical_results = train_optical_model(optical_model, optimizer, train_frame_loader, val_frame_loader, frame_trainset, frame_valset,"cuda",10)
     #results = train_dualstream(dual_stream_model, optimizer, train_frame_loader, train_flow_loader, val_frame_loader, val_flow_loader, frame_trainset, frame_valset, "gpu",5)
 
