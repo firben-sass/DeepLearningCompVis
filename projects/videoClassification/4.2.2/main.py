@@ -18,8 +18,9 @@ import uuid
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 # Config paths
 DATASET_ROOT_DIR =  '/dtu/datasets1/02516/ucf101_noleakage'
+SAVE_MODELS__DIR = 'pretrained_models'
 # --- Configuration ---
-plotspath = f"plots/figure_{uuid.uuid1()}"
+PLOTS_ROOT_DIR = f"plots"
 
 def create_models(classes=10):
     '''
@@ -62,8 +63,6 @@ def load_rgb_data(batch_size=64, image_size=224):
 
 def load_flow_data(batch_size=64, image_size=224):
     logging.info("Loading flow dataset")
-    transform = T.Compose([T.Resize((image_size, image_size)),T.ToTensor()])
-    # Train 
     trainset = OpticalFlowDataset(root_dir=DATASET_ROOT_DIR, split='train', image_size=image_size)
     valset = OpticalFlowDataset(root_dir=DATASET_ROOT_DIR, split='val', image_size=image_size)
     testset = OpticalFlowDataset(root_dir=DATASET_ROOT_DIR, split='test')
@@ -79,6 +78,7 @@ def train_optical_model(model:OpticalStream, optimizer, train_loader, val_loader
     model.to(device)
     criterion = nn.CrossEntropyLoss()
     out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'val_loss': []}
+    best_val_acc = 0.0
 
     for epoch in range(num_epochs):
         model.train()
@@ -112,14 +112,20 @@ def train_optical_model(model:OpticalStream, optimizer, train_loader, val_loader
             val_correct += (target == predicted).sum().cpu().item()
 
         # --- Logging ---
-        out_dict['train_acc'].append(train_correct / len(trainset))
-        out_dict['test_acc'].append(val_correct / len(valset))
+        train_acc = train_correct / len(trainset)
+        val_acc = val_correct / len(valset)
+        out_dict['train_acc'].append(train_acc)
+        out_dict['test_acc'].append(val_acc)
         out_dict['train_loss'].append(np.mean(train_loss))
         out_dict['val_loss'].append(np.mean(val_loss))
 
         print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(val_loss):.3f} | "
               f"Accuracy train {out_dict['train_acc'][-1]*100:.1f}%, test {out_dict['test_acc'][-1]*100:.1f}%")
-
+        # Save best model
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), f"{SAVE_MODELS__DIR}/optical_best.pt")
+            print(f"Saved new best model with val_acc={val_acc*100:.2f}%")
     return out_dict
 def train_temporal_model(model:TemporalStream, 
                         optimizer, 
@@ -131,6 +137,7 @@ def train_temporal_model(model:TemporalStream,
     model.to(device)
     criterion = nn.CrossEntropyLoss()
     out_dict = {'train_acc': [], 'test_acc': [], 'train_loss': [], 'val_loss': []}
+    best_val_acc = 0.0
     logging.info("Training temporal model")
     for epoch in range(num_epochs):
         model.train()
@@ -164,13 +171,21 @@ def train_temporal_model(model:TemporalStream,
             val_correct += (target == predicted).sum().cpu().item()
 
         # --- Logging ---
-        out_dict['train_acc'].append(train_correct / len(trainset))
-        out_dict['test_acc'].append(val_correct / len(valset))
+        train_acc = train_correct / len(trainset)
+        val_acc = val_correct / len(valset)
+        out_dict['train_acc'].append(train_acc)
+        out_dict['test_acc'].append(val_acc)
         out_dict['train_loss'].append(np.mean(train_loss))
         out_dict['val_loss'].append(np.mean(val_loss))
 
         print(f"Epoch {epoch+1}: Loss train {np.mean(train_loss):.3f}, test {np.mean(val_loss):.3f} | "
               f"Accuracy train {out_dict['train_acc'][-1]*100:.1f}%, test {out_dict['test_acc'][-1]*100:.1f}%")
+        
+                # Save best model
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            torch.save(model.state_dict(), f"{SAVE_MODELS__DIR}/temporal_best.pt")
+            print(f"Saved new best model with val_acc={val_acc*100:.2f}%")
 
     return out_dict
     
@@ -181,12 +196,11 @@ def main():
     flow_trainset, flow_valset, flow_testset, train_flow_loader, val_flow_loader, test_flow_loader= load_flow_data(batch_size=64, image_size=224)
     
     optimizer = optim.Adam(optical_model.parameters(), lr=0.0001) 
-    optical_results = train_optical_model(optical_model, optimizer, train_frame_loader, val_frame_loader, frame_trainset, frame_valset,"cuda",500)
+    optical_results = train_optical_model(optical_model, optimizer, train_frame_loader, val_frame_loader, frame_trainset, frame_valset,"cuda",10)
+    temporal_results = train_temporal_model(temporal_model, optimizer, train_flow_loader, val_flow_loader, flow_trainset, flow_valset,"cuda",10)
 
-    temporal_results = train_temporal_model(temporal_model, optimizer, train_flow_loader, val_flow_loader, flow_trainset, flow_valset,"cuda",500)
-    results = train_dualstream(dual_stream_model, optimizer, train_frame_loader, train_flow_loader, val_frame_loader, val_flow_loader, frame_trainset, frame_valset, "gpu",5)
-
-    #plot_and_save_loss_accuracy(results, plotspath)
+    plot_and_save_loss_accuracy(optical_results, f"{PLOTS_ROOT_DIR}/optical_figure_{uuid.uuid1()}")
+    plot_and_save_loss_accuracy(temporal_results, f"{PLOTS_ROOT_DIR}/temporal_figure_{uuid.uuid1()}")
             
 
 if __name__ == "__main__":
