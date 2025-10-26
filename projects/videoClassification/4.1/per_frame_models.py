@@ -2,7 +2,7 @@
 
 import argparse
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import nn
@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms as T
 from tqdm.auto import tqdm
 
-from datasets import FrameImageDataset
+from datasets import FrameImageDataset, FrameVideoDataset
 
 
 class SimplePerFrameCNN(nn.Module):
@@ -94,40 +94,58 @@ class SimplePerFrameCNN(nn.Module):
 				correct += 1
 		return correct / total if total > 0 else 0.0
 
-	def eval(self, root_dir: str, batch_size: int = 32, num_workers: int = 2, device: Optional[str] = None) -> float:
-		"""
-		Evaluate the model on a test dataset using FrameImageDataset.
-		Args:
-			root_dir (str): Path to the root directory containing data (should have frames/ and metadata/).
-			batch_size (int): Batch size for DataLoader.
-			num_workers (int): Number of workers for DataLoader.
-			device (str, optional): Device to run evaluation on. If None, uses 'cuda' if available.
-		Returns:
-			float: Test accuracy (between 0 and 1).
-		"""
-		if device is None:
-			device = 'cuda' if torch.cuda.is_available() else 'cpu'
-		self.to(device)
+	def eval(self, *args, **kwargs):
+		"""Extend nn.Module.eval with dataset-based evaluation when arguments are provided."""
+		if not args and 'root_dir' not in kwargs and 'split' not in kwargs:
+			return super().eval(*args, **kwargs)
+		return self._eval_dataset(*args, **kwargs)
+
+	def _eval_dataset(
+		self,
+		root_dir: str,
+		split: str = 'test',
+		transform: Optional[T.Compose] = None,
+		batch_size: int = 1,
+		num_workers: int = 0,
+		stack_frames: bool = True,
+		limit: Optional[int] = None,
+		show_progress: bool = True,
+	) -> float:
+		"""Evaluate accuracy on a dataset of videos drawn from ``FrameVideoDataset``."""
 		super().eval()
-        
-		transform = T.Compose([
-			T.Resize((64, 64)),
-			T.ToTensor()
-		])
-		test_dataset = FrameImageDataset(root_dir=root_dir, split='test', transform=transform)
-		test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-        
-		correct = 0
-		total = 0
-		with torch.no_grad():
-			for frames, labels in test_loader:
-				frames = frames.to(device)
-				labels = labels.to(device)
-				outputs = self.forward(frames)
-				preds = torch.argmax(outputs, dim=1)
-				correct += (preds == labels).sum().item()
-				total += labels.size(0)
-		return correct / total if total > 0 else 0.0
+		if transform is None:
+			transform = T.Compose([T.Resize((64, 64)), T.ToTensor()])
+		dataset = FrameVideoDataset(
+			root_dir=root_dir,
+			split=split,
+			transform=transform,
+			stack_frames=stack_frames,
+		)
+		if limit is not None:
+			limit = min(limit, len(dataset))
+			dataset = torch.utils.data.Subset(dataset, list(range(limit)))
+		loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+		videos: List[torch.Tensor] = []
+		labels: List[int] = []
+		iterator = loader
+		if show_progress:
+			iterator = tqdm(loader, desc='Collecting videos', leave=False)
+		for batch_frames, batch_labels in iterator:
+			for frames_tensor, label_tensor in zip(batch_frames, batch_labels):
+				if stack_frames:
+					frames_tensor = frames_tensor.permute(1, 0, 2, 3)
+				else:
+					if isinstance(frames_tensor, (list, tuple)):
+						frames_tensor = torch.stack(list(frames_tensor))
+				videos.append(frames_tensor)
+				labels.append(int(label_tensor.item()))
+				if limit is not None and len(videos) >= limit:
+					break
+			if limit is not None and len(videos) >= limit:
+				break
+		device = next(self.parameters()).device
+		videos = [video.to(device) for video in videos]
+		return self.eval_videos(videos, labels)
 
 	def load_weights(self, weights_path: str, map_location: Optional[str] = None) -> None:
 		"""Load model weights from disk, defaulting to the local models directory."""
@@ -140,7 +158,7 @@ class SimplePerFrameCNN(nn.Module):
 		if isinstance(state, dict) and 'state_dict' in state:
 			state = state['state_dict']
 		self.load_state_dict(state)
-	
+
 
 if __name__ == '__main__':
 	root_dir = "projects/videoClassification/data"
