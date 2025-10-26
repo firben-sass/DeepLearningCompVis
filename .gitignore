@@ -5,6 +5,4 @@ __pycache__/
 .DS_Store
 *.log
 .env
-*.png
-*.pth
 batch_output
