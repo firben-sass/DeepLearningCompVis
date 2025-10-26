@@ -4,7 +4,11 @@ __pycache__/
 *.pyc
 .DS_Store
 *.log
+<<<<<<< HEAD
 .env
 *.png
 *.pth
 batch_output
+=======
+.env
+>>>>>>> f8a5367c0918ca96e6a873708054cda0be57f987
