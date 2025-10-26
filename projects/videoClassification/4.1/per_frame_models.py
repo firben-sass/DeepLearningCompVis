@@ -1,6 +1,7 @@
 """Per-frame CNN models for video classification experiments."""
 
 import argparse
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -16,7 +17,7 @@ from datasets import FrameImageDataset
 class SimplePerFrameCNN(nn.Module):
 	"""Lightweight CNN for per-frame classification."""
 
-	def __init__(self, in_channels: int = 3, num_classes: int = 10):
+	def __init__(self, in_channels: int = 3, num_classes: int = 10, model_path: Optional[str] = None, map_location: Optional[str] = None):
 		super().__init__()
 
 		# Stem keeps spatial dims manageable while extracting low-level features.
@@ -39,6 +40,9 @@ class SimplePerFrameCNN(nn.Module):
 		)
 
 		self.classifier = nn.Linear(128, num_classes)
+
+		if model_path:
+			self.load_weights(model_path, map_location=map_location)
 
 	def forward(self, x: torch.Tensor) -> torch.Tensor:
 		"""Return per-frame logits given batched frames."""
@@ -63,7 +67,7 @@ class SimplePerFrameCNN(nn.Module):
 		Returns:
 			int: The class index that most frames are classified as.
 		"""
-		self.eval()
+		super().eval()
 		with torch.no_grad():
 			logits = self.forward(frames)  # (N, num_classes)
 			preds = torch.argmax(logits, dim=1)  # (N,)
@@ -89,3 +93,57 @@ class SimplePerFrameCNN(nn.Module):
 			if pred == label:
 				correct += 1
 		return correct / total if total > 0 else 0.0
+
+	def eval(self, root_dir: str, batch_size: int = 32, num_workers: int = 2, device: Optional[str] = None) -> float:
+		"""
+		Evaluate the model on a test dataset using FrameImageDataset.
+		Args:
+			root_dir (str): Path to the root directory containing data (should have frames/ and metadata/).
+			batch_size (int): Batch size for DataLoader.
+			num_workers (int): Number of workers for DataLoader.
+			device (str, optional): Device to run evaluation on. If None, uses 'cuda' if available.
+		Returns:
+			float: Test accuracy (between 0 and 1).
+		"""
+		if device is None:
+			device = 'cuda' if torch.cuda.is_available() else 'cpu'
+		self.to(device)
+		super().eval()
+        
+		transform = T.Compose([
+			T.Resize((64, 64)),
+			T.ToTensor()
+		])
+		test_dataset = FrameImageDataset(root_dir=root_dir, split='test', transform=transform)
+		test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        
+		correct = 0
+		total = 0
+		with torch.no_grad():
+			for frames, labels in test_loader:
+				frames = frames.to(device)
+				labels = labels.to(device)
+				outputs = self.forward(frames)
+				preds = torch.argmax(outputs, dim=1)
+				correct += (preds == labels).sum().item()
+				total += labels.size(0)
+		return correct / total if total > 0 else 0.0
+
+	def load_weights(self, weights_path: str, map_location: Optional[str] = None) -> None:
+		"""Load model weights from disk, defaulting to the local models directory."""
+		checkpoint_path = Path(weights_path)
+		if not checkpoint_path.is_file():
+			checkpoint_path = Path(__file__).resolve().parent / 'models' / weights_path
+		if not checkpoint_path.is_file():
+			raise FileNotFoundError(f"Could not find weights file at {weights_path} or {checkpoint_path}")
+		state = torch.load(checkpoint_path, map_location=map_location or 'cpu')
+		if isinstance(state, dict) and 'state_dict' in state:
+			state = state['state_dict']
+		self.load_state_dict(state)
+	
+
+if __name__ == '__main__':
+	root_dir = "../data"
+	model = SimplePerFrameCNN("per_frame_cnn.pth")
+	accuracy = model.eval(root_dir=root_dir, batch_size=16, num_workers=4)
+	print(f"Test Accuracy: {accuracy * 100:.2f}%")
