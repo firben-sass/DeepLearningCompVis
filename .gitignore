@@ -7,3 +7,4 @@ __pycache__/
 .env
 *.png
 *.pth
+batch_output
