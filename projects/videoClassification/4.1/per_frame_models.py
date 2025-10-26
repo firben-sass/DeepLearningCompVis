@@ -143,7 +143,7 @@ class SimplePerFrameCNN(nn.Module):
 	
 
 if __name__ == '__main__':
-	root_dir = "../data"
-	model = SimplePerFrameCNN("per_frame_cnn.pth")
+	root_dir = "projects/videoClassification/data"
+	model = SimplePerFrameCNN(model_path="per_frame_cnn.pth")
 	accuracy = model.eval(root_dir=root_dir, batch_size=16, num_workers=4)
 	print(f"Test Accuracy: {accuracy * 100:.2f}%")
