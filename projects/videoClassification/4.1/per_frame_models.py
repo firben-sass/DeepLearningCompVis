@@ -14,7 +14,7 @@ from datasets import FrameImageDataset
 
 
 class SimplePerFrameCNN(nn.Module):
-	"""Lightweight CNN for per-frame feature extraction."""
+	"""Lightweight CNN for per-frame classification."""
 
 	def __init__(self, in_channels: int = 3, num_classes: int = 10):
 		super().__init__()
@@ -55,9 +55,37 @@ class SimplePerFrameCNN(nn.Module):
 		x = self.features(x)
 		return torch.flatten(x, 1)
 
-	def infer(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-		"""Return logits and probabilities for convenience."""
-
-		logits = self.forward(x)
-		probs = F.softmax(logits, dim=-1)
-		return logits, probs
+	def infer(self, frames: torch.Tensor) -> int:
+		"""
+		Classify a video by classifying each frame and returning the most frequent class.
+		Args:
+			frames (torch.Tensor): Tensor of shape (N, C, H, W) where N is number of frames.
+		Returns:
+			int: The class index that most frames are classified as.
+		"""
+		self.eval()
+		with torch.no_grad():
+			logits = self.forward(frames)  # (N, num_classes)
+			preds = torch.argmax(logits, dim=1)  # (N,)
+			# Count occurrences of each class
+			values, counts = preds.unique(return_counts=True)
+			most_common = values[counts.argmax()].item()
+		return most_common
+	
+	def eval_videos(self, videos: list, labels: list) -> float:
+		"""
+		Evaluate the model on a list of videos and their true classes.
+		Args:
+			videos (list of torch.Tensor): Each tensor is (N, C, H, W) for a video.
+			labels (list of int): True class indices for each video.
+		Returns:
+			float: Test accuracy (between 0 and 1).
+		"""
+		assert len(videos) == len(labels), "Number of videos and labels must match."
+		correct = 0
+		total = len(videos)
+		for video, label in zip(videos, labels):
+			pred = self.infer(video)
+			if pred == label:
+				correct += 1
+		return correct / total if total > 0 else 0.0
