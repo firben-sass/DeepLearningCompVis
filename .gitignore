@@ -1,4 +1,5 @@
 venv/
+/projects/videoClassification/4.2.2/pretrained_models/*.pt
 data/
 __pycache__/
 *.pyc
