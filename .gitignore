@@ -1,2 +1,9 @@
 venv/
 /projects/videoClassification/4.2.2/pretrained_models/*.pt
+data/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.env
+batch_output
