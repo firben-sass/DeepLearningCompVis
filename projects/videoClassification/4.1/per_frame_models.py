@@ -61,20 +61,19 @@ class SimplePerFrameCNN(nn.Module):
 
 	def infer(self, frames: torch.Tensor) -> int:
 		"""
-		Classify a video by classifying each frame and returning the most frequent class.
+		Classify a video by averaging per-frame probabilities and taking the highest score.
 		Args:
 			frames (torch.Tensor): Tensor of shape (N, C, H, W) where N is number of frames.
 		Returns:
-			int: The class index that most frames are classified as.
+			int: The predicted class index based on averaged probabilities across frames.
 		"""
 		super().eval()
 		with torch.no_grad():
 			logits = self.forward(frames)  # (N, num_classes)
-			preds = torch.argmax(logits, dim=1)  # (N,)
-			# Count occurrences of each class
-			values, counts = preds.unique(return_counts=True)
-			most_common = values[counts.argmax()].item()
-		return most_common
+			probs = F.softmax(logits, dim=1)
+			avg_probs = probs.mean(dim=0)  # (num_classes,)
+			predicted_class = torch.argmax(avg_probs).item()
+		return predicted_class
 	
 	def eval_videos(self, videos: list, labels: list) -> float:
 		"""
