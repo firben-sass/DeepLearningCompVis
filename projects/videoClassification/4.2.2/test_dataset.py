@@ -1,43 +1,53 @@
+import os
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from glob import glob
+from PIL import Image
 from datasets import OpticalFlowDataset
+import random
 
-# Create a small dataset instance (adjust the path as needed)
-dataset = OpticalFlowDataset(root_dir="/home/datawa/Repositories/ucf101_noleakage", split='train', image_size=224)
-flows, label = dataset[0]
+# --- Load dataset ---
+dataset = OpticalFlowDataset(
+    root_dir="/home/datawa/Repositories/ucf101_noleakage",
+    split="train",
+    image_size=224
+)
 
-print(f"Flow tensor shape: {flows.shape}")  # expect [18, 224, 224]
-print(f"Label: {label} ({dataset.classes[label]})")
+# --- Select two random samples from different classes ---
+indices = random.sample(range(len(dataset)), 2)
 
-# --- Basic stats ---
-print("\nPer-channel statistics:")
-for i in range(flows.shape[0]):
-    ch = flows[i]
-    print(f"  Channel {i:02d}: min={ch.min():.2f}, max={ch.max():.2f}, mean={ch.mean():.2f}")
+fig, axes = plt.subplots(2, 3, figsize=(10, 7))
 
-# --- Global histogram ---
-flat = flows.flatten().numpy()
-plt.figure(figsize=(6,4))
-plt.hist(flat, bins=100, color='skyblue', edgecolor='k')
-plt.title("Distribution of flow values across all channels")
-plt.xlabel("Flow value")
-plt.ylabel("Frequency")
-plt.grid(True)
-plt.show()
+for row, idx in enumerate(indices):
+    flows, label = dataset[idx]
+    class_name = dataset.classes[label]
+    video_path = dataset.video_paths[idx]
 
-# --- Visualize a few flow fields (dx, dy) ---
-num_pairs = flows.shape[0] // 2
-fig, axes = plt.subplots(2, 4, figsize=(12, 6))
-for i in range(4):
-    dx = flows[2*i].numpy()
-    dy = flows[2*i + 1].numpy()
+    # --- Load corresponding RGB frame ---
+    rgb_dir = video_path.replace("flows", "frames")
+    rgb_files = sorted(glob(os.path.join(rgb_dir, "*.jpg")) + glob(os.path.join(rgb_dir, "*.png")))
+    if len(rgb_files) == 0:
+        raise FileNotFoundError(f"No RGB frames found in {rgb_dir}")
+    rgb_img = np.array(Image.open(rgb_files[0]).convert("RGB"))
 
-    axes[0, i].imshow(dx, cmap='jet')
-    axes[0, i].set_title(f'flow_{i+1}: dx (horizontal)')
-    axes[1, i].imshow(dy, cmap='jet')
-    axes[1, i].set_title(f'flow_{i+1}: dy (vertical)')
+    # --- Extract first optical flow pair ---
+    dx = flows[0].numpy()
+    dy = flows[1].numpy()
 
-for ax in axes.ravel():
-    ax.axis('off')
+    # --- Plot RGB + flow maps ---
+    axes[row, 0].imshow(rgb_img)
+    axes[row, 0].set_title(f"Class: {class_name}")
+    axes[row, 0].axis("off")
+
+    axes[row, 1].imshow(dx, cmap="jet")
+    axes[row, 1].set_title("Horizontal flow(dx)")
+    axes[row, 1].axis("off")
+
+    axes[row, 2].imshow(dy, cmap="jet")
+    axes[row, 2].set_title("Vertical flow (dy)")
+    axes[row, 2].axis("off")
+
 plt.tight_layout()
+plt.savefig("plots/flow_examples.png", dpi=300, bbox_inches="tight")
 plt.show()

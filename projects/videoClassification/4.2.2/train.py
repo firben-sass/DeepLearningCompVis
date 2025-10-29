@@ -7,8 +7,8 @@ from torchvision import transforms as T
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-from optical_model import OpticalStream
-from temporal_model import TemporalStream
+from model.optical_model import OpticalStream
+from model.temporal_model import TemporalStream
 #from fusion_model import TwoStreamFusion
 from utils import plot_and_save_loss_accuracy
 from datasets import FrameImageDataset, OpticalFlowDataset

@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from optical_model import OpticalStream
-from temporal_model import TemporalStream  # or whatever your flow model class is
-from fusion_model import TwoStreamFusion
+from model.optical_model import OpticalStream
+from model.temporal_model import TemporalStream  # or whatever your flow model class is
+from model.fusion_model import TwoStreamFusion
 from fusion_dataset import RGBFlowPairDataset
 from torch.utils.data import DataLoader
 
