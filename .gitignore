@@ -10,3 +10,5 @@ batch_output
 *.pth
 *.err
 *.out
+*.png
+*.jpg

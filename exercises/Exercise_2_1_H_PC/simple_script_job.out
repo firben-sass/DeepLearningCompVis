@@ -1,7 +1,0 @@
-Hello to simple script!
-Tensor shape: torch.Size([3, 1024, 1536])
-Data type: torch.uint8
-Tensor in cpu
-Tensor moved to GPU succesfully
-Tensor in cuda:0
-Tensor saved to: gpu_tensor.pt
