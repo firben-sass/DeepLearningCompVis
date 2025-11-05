@@ -7,3 +7,6 @@ __pycache__/
 *.log
 .env
 batch_output
+*.pth
+*.err
+*.out
