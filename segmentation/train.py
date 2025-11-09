@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import glob
+from pathlib import Path
 import PIL.Image as Image
 
 # pip install torchsummary
@@ -19,6 +20,14 @@ from lib.model.DilatedNetModel import DilatedNet
 from lib.model.UNetModel import UNet, UNet2
 from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation, CrossEntropySegmentationLoss
 from lib.dataset.Datasets import PhC, CMP, DRIVE, PH2
+from lib.plotting import plot_training_curves
+from measure import (
+    accuracy,
+    dice_overlap,
+    intersection_over_union,
+    sensitivity,
+    specificity,
+)
 
 # Dataset
 size = 256
@@ -76,12 +85,23 @@ epochs = 5
 
 # Training loop
 X_test, Y_test = next(iter(test_loader))
+metric_fns = {
+    "Dice": dice_overlap,
+    "IoU": intersection_over_union,
+    "Accuracy": accuracy,
+    "Sensitivity": sensitivity,
+    "Specificity": specificity,
+}
+metric_history = {name: [] for name in metric_fns}
+train_losses = []
+val_losses = []
+
 model.train()  # train mode
 for epoch in range(epochs):
     tic = time()
     print(f'* Epoch {epoch+1}/{epochs}')
 
-    avg_loss = 0
+    epoch_train_loss = 0.0
     for X_batch, y_true in train_loader:
         X_batch = X_batch.to(device)
         y_true = y_true.to(device)
@@ -98,14 +118,52 @@ for epoch in range(epochs):
         opt.step()  # update weights
 
         # calculate metrics to show the user
-        avg_loss += loss / len(train_loader)
+        epoch_train_loss += loss.item()
+
+    epoch_train_loss /= max(len(train_loader), 1)
+    train_losses.append(epoch_train_loss)
 
     # IMPORTANT NOTE: It is a good practice to check performance on a
     # validation set after each epoch.
-    #model.eval()  # testing mode
-    #Y_hat = F.sigmoid(model(X_test.to(device))).detach().cpu()
-    print(f' - loss: {avg_loss}')
+    model.eval()
+
+    epoch_val_loss = 0.0
+    metrics_sums = {name: 0.0 for name in metric_fns}
+    with torch.no_grad():
+        for X_val, y_val in test_loader:
+            X_val = X_val.to(device)
+            y_val = y_val.to(device)
+
+            logits = model(X_val)
+            val_loss = loss_fn(logits, y_val)
+            epoch_val_loss += val_loss.item()
+
+            predictions = (torch.sigmoid(logits) > 0.5).float()
+            for name, fn in metric_fns.items():
+                metrics_sums[name] += fn(predictions, y_val)
+
+    num_val_batches = max(len(test_loader), 1)
+    epoch_val_loss /= num_val_batches
+    val_losses.append(epoch_val_loss)
+
+    for name in metric_fns:
+        metric_value = metrics_sums[name] / num_val_batches
+        metric_history[name].append(metric_value)
+
+    print(f' - train_loss: {epoch_train_loss:.4f} | val_loss: {epoch_val_loss:.4f}')
+    for name in metric_fns:
+        print(f'   {name}: {metric_history[name][-1]:.4f}')
+
+    model.train()
 
 # Save the model
 torch.save(model.state_dict(), "/work3/s204164/DeepLearningCompVis/segmentation/saved_models/model.pth")
 print("Training has finished!")
+
+plots_dir = Path(__file__).resolve().parent / "outputs" / "training_curves"
+plot_training_curves(
+    {"train": train_losses, "val": val_losses},
+    metric_history,
+    output_dir=plots_dir,
+    show=False,
+)
