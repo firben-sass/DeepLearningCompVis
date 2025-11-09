@@ -21,13 +21,14 @@ from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation, Cro
 from lib.dataset.Datasets import PhC, CMP, DRIVE, PH2
 
 # Dataset
-size = 128
+size = 256
 train_transform = transforms.Compose([transforms.Resize((size, size)),
                                     transforms.ToTensor()])
 test_transform = transforms.Compose([transforms.Resize((size, size)),
                                     transforms.ToTensor()])
 label_transform = transforms.Compose([
-    transforms.Resize((size, size), interpolation=Image.NEAREST)
+    transforms.Resize((size, size), interpolation=Image.NEAREST),
+    transforms.ToTensor()
 ])
 
 batch_size = 6
@@ -43,10 +44,10 @@ batch_size = 6
 # testset = CMP(train=False, transform=test_transform, label_transform=label_transform, num_classes=12)
 # test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False,
 #                           num_workers=3)
-trainset = PH2(train=True, transform=train_transform, label_transform=label_transform)
+trainset = PH2(split='train', transform=train_transform, label_transform=label_transform)
 train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True,
                           num_workers=3)
-testset = PH2(train=False, transform=test_transform, label_transform=label_transform)
+testset = PH2(split='test', transform=test_transform, label_transform=label_transform)
 test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False,
                           num_workers=3)
 # IMPORTANT NOTE: There is no validation set provided here, but don't forget to
@@ -70,7 +71,7 @@ opt = optim.Adam(model.parameters(), learning_rate)
 #loss_fn = DiceLoss() # TODO
 #loss_fn = FocalLoss() # TODO
 # loss_fn = BCELoss_TotalVariation() # TODO
-loss_fn = CrossEntropySegmentationLoss()
+loss_fn = BCELoss()
 epochs = 5
 
 # Training loop

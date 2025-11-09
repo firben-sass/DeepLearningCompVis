@@ -23,9 +23,9 @@ def make_transforms(image_size=256):
 	return image_transform, label_transform
 
 
-def prepare_loader(dataset_cls, image_transform, label_transform, batch_size=4):
+def prepare_loader(dataset_cls, image_transform, label_transform, batch_size=4, *, split='train'):
 	dataset = dataset_cls(
-		train=True,
+		split=split,
 		transform=image_transform,
 		label_transform=label_transform,
 	)
@@ -78,8 +78,8 @@ def main():
 	save_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "outputs", "verify_dataloader"))
 	os.makedirs(save_dir, exist_ok=True)
 
-	drive_loader = prepare_loader(DRIVE, image_transform, label_transform, batch_size)
-	ph2_loader = prepare_loader(PH2, image_transform, label_transform, batch_size)
+	drive_loader = prepare_loader(DRIVE, image_transform, label_transform, batch_size, split='train')
+	ph2_loader = prepare_loader(PH2, image_transform, label_transform, batch_size, split='train')
 
 	drive_images, drive_labels = next(iter(drive_loader))
 	drive_path = os.path.join(save_dir, "drive_samples.png")

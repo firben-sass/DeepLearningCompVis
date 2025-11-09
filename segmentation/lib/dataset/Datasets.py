@@ -68,48 +68,62 @@ class PhC:
 
 
 class DRIVE(_PaletteSegmentationMixin, torch.utils.data.Dataset):
-    def __init__(self, train, transform=None, label_transform=None, prefer_manual_labels=True):
+    def __init__(self, split='train', transform=None, label_transform=None):
         'Initialization'
+        if isinstance(split, bool):
+            split = 'train' if split else 'test'
+        if not isinstance(split, str):
+            raise TypeError('split must be a bool or a string.')
+
+        split = split.lower()
+        if split == 'val':
+            split = 'validate'
+
+        valid_splits = {'train', 'validate', 'test'}
+        if split not in valid_splits:
+            raise ValueError(f"Unsupported split '{split}'. Choose from {sorted(valid_splits)}.")
+
+        self.split = split
         self.transform = transform
         self.label_transform = label_transform
-        self.prefer_manual_labels = prefer_manual_labels
 
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'DRIVE'))
-        split = 'training' if train else 'test'
-        image_dir = os.path.join(base_dir, split, 'images')
-        manual_dir = os.path.join(base_dir, split, '1st_manual')
-        mask_dir = os.path.join(base_dir, split, 'mask')
+        split_dir = os.path.join(base_dir, split)
+        image_dir = os.path.join(split_dir, 'images')
+        label_dir = os.path.join(split_dir, 'labels')
 
-        manual_available = os.path.isdir(manual_dir) and glob.glob(os.path.join(manual_dir, '*.gif'))
-        mask_available = os.path.isdir(mask_dir) and glob.glob(os.path.join(mask_dir, '*.gif'))
+        if not os.path.isdir(image_dir):
+            raise FileNotFoundError(f'No DRIVE images directory found at {image_dir}.')
+        if not os.path.isdir(label_dir):
+            raise FileNotFoundError(f'No DRIVE labels directory found at {label_dir}.')
 
-        if self.prefer_manual_labels and manual_available:
-            self.label_type = 'manual'
-            self.label_dir = manual_dir
-        elif mask_available:
-            self.label_type = 'mask'
-            self.label_dir = mask_dir
-        elif manual_available:
-            self.label_type = 'manual'
-            self.label_dir = manual_dir
-        else:
-            raise FileNotFoundError(f'Could not locate labels for DRIVE {split} split at {base_dir}.')
-
-        self.image_paths = sorted(glob.glob(os.path.join(image_dir, '*.tif')))
+        image_patterns = ('*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg', '*.bmp')
+        image_paths = []
+        for pattern in image_patterns:
+            image_paths.extend(glob.glob(os.path.join(image_dir, pattern)))
+        self.image_paths = sorted(image_paths)
         if not self.image_paths:
             raise FileNotFoundError(f'No DRIVE images found in {image_dir}.')
 
+        label_lookup = {}
+        for pattern in ('*.png', '*.gif', '*.tif', '*.tiff'):
+            for label_path in glob.glob(os.path.join(label_dir, pattern)):
+                stem = os.path.splitext(os.path.basename(label_path))[0]
+                parts = stem.rsplit('_', 1)
+                key = parts[0] if len(parts) > 1 else stem
+                label_lookup.setdefault(key, label_path)
+
+        if not label_lookup:
+            raise FileNotFoundError(f'No DRIVE labels found in {label_dir}.')
+
         self.samples = []
         for image_path in self.image_paths:
-            base_name = os.path.splitext(os.path.basename(image_path))[0]
-            sample_id = base_name.split('_')[0]
-            if self.label_type == 'manual':
-                label_name = f'{sample_id}_manual1.gif'
-            else:
-                label_name = f'{base_name}_mask.gif'
-            label_path = os.path.join(self.label_dir, label_name)
-            if not os.path.exists(label_path):
-                raise FileNotFoundError(f'Missing label for {os.path.basename(image_path)} at {label_path}.')
+            image_stem = os.path.splitext(os.path.basename(image_path))[0]
+            image_key_parts = image_stem.rsplit('_', 1)
+            image_key = image_key_parts[0] if len(image_key_parts) > 1 else image_stem
+            label_path = label_lookup.get(image_key)
+            if label_path is None:
+                raise FileNotFoundError(f'No matching label found for {os.path.basename(image_path)} in {label_dir}.')
             self.samples.append((image_path, label_path))
 
     def __len__(self):
@@ -139,8 +153,22 @@ class DRIVE(_PaletteSegmentationMixin, torch.utils.data.Dataset):
 
 
 class PH2(_PaletteSegmentationMixin, torch.utils.data.Dataset):
-    def __init__(self, train, transform=None, label_transform=None, split_ratio=0.8):
+    def __init__(self, split='train', transform=None, label_transform=None):
         'Initialization'
+        if isinstance(split, bool):
+            split = 'train' if split else 'test'
+        if not isinstance(split, str):
+            raise TypeError('split must be a bool or a string.')
+
+        split = split.lower()
+        if split == 'val':
+            split = 'validate'
+
+        valid_splits = ('train', 'validate', 'test')
+        if split not in valid_splits:
+            raise ValueError(f"Unsupported split '{split}'. Choose from {valid_splits}.")
+
+        self.split = split
         self.transform = transform
         self.label_transform = label_transform
 
@@ -180,13 +208,15 @@ class PH2(_PaletteSegmentationMixin, torch.utils.data.Dataset):
         self.target_width = min(sample['width'] for sample in all_samples)
         self.target_height = min(sample['height'] for sample in all_samples)
 
-        if len(case_dirs) > 1:
-            split_idx = int(len(case_dirs) * split_ratio)
-            split_idx = max(1, min(split_idx, len(case_dirs) - 1))
-            self.case_dirs = case_dirs[:split_idx] if train else case_dirs[split_idx:]
-            if not self.case_dirs:
-                self.case_dirs = case_dirs
-        else:
+        split_names = ('train', 'validate', 'test')
+        split_arrays = np.array_split(np.array(case_dirs, dtype=object), len(split_names))
+        split_map = {
+            name: list(arr.tolist()) if len(arr) else []
+            for name, arr in zip(split_names, split_arrays)
+        }
+
+        self.case_dirs = split_map.get(self.split, case_dirs)
+        if not self.case_dirs:
             self.case_dirs = case_dirs
 
         selected_case_dirs = set(self.case_dirs)

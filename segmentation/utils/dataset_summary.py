@@ -1,7 +1,7 @@
 """Utility to summarize segmentation datasets using torch DataLoaders."""
 
 import argparse
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -13,17 +13,21 @@ except ImportError as exc:  # pragma: no cover
 
 
 def _build_dataset(name: str, split: str) -> Dataset:
-    is_train = split == "train"
-    registry: Dict[str, Callable[[], Dataset]] = {
-        "drive": lambda: DRIVE(train=is_train),
-        "ph2": lambda: PH2(train=is_train),
-        "cmp": lambda: CMP(train=is_train),
-    }
-
     key = name.lower()
-    if key not in registry:
-        raise ValueError(f"Unknown dataset '{name}'. Available options: {sorted(registry)}")
-    return registry[key]()
+    split = split.lower()
+
+    if key == "drive":
+        return DRIVE(split=split)
+
+    if key == "ph2":
+        return PH2(split=split)
+
+    if key == "cmp":
+        if split not in {"train", "test"}:
+            raise ValueError(f"Split '{split}' is not supported for dataset '{name}'.")
+        return CMP(train=(split == "train"))
+
+    raise ValueError(f"Unknown dataset '{name}'. Available options: ['cmp', 'drive', 'ph2']")
 
 
 def _describe_loader(loader: DataLoader, track_label_values: bool = True) -> Dict[str, object]:
@@ -151,9 +155,9 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--split",
-        default="both",
-        choices=["train", "test", "both"],
-        help="Dataset split to inspect (default: both).",
+        default="all",
+        choices=["train", "validate", "test", "all"],
+        help="Dataset split to inspect (default: all).",
     )
     parser.add_argument("--batch-size", type=int, default=1, help="DataLoader batch size (default: 1).")
     parser.add_argument(
@@ -175,8 +179,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         dataset_names = [args.dataset]
 
     splits: List[str]
-    if args.split == "both":
-        splits = ["train", "test"]
+    if args.split == "all":
+        splits = ["train", "validate", "test"]
     else:
         splits = [args.split]
 
