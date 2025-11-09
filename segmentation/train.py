@@ -18,7 +18,7 @@ from lib.model.EncDecModel import EncDec
 from lib.model.DilatedNetModel import DilatedNet
 from lib.model.UNetModel import UNet, UNet2
 from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation, CrossEntropySegmentationLoss
-from lib.dataset.Datasets import PhC, CMP
+from lib.dataset.Datasets import PhC, CMP, DRIVE, PH2
 
 # Dataset
 size = 128
@@ -37,10 +37,16 @@ batch_size = 6
 # testset = PhC(train=False, transform=test_transform)
 # test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False,
 #                           num_workers=3)
-trainset = CMP(train=True, transform=train_transform, label_transform=label_transform, num_classes=12)
+# trainset = CMP(train=True, transform=train_transform, label_transform=label_transform, num_classes=12)
+# train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True,
+#                           num_workers=3)
+# testset = CMP(train=False, transform=test_transform, label_transform=label_transform, num_classes=12)
+# test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False,
+#                           num_workers=3)
+trainset = PH2(train=True, transform=train_transform, label_transform=label_transform)
 train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True,
                           num_workers=3)
-testset = CMP(train=False, transform=test_transform, label_transform=label_transform, num_classes=12)
+testset = PH2(train=False, transform=test_transform, label_transform=label_transform)
 test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False,
                           num_workers=3)
 # IMPORTANT NOTE: There is no validation set provided here, but don't forget to
@@ -100,5 +106,5 @@ for epoch in range(epochs):
     print(f' - loss: {avg_loss}')
 
 # Save the model
-torch.save(model.state_dict(), "/work3/s204164/IDLCV/segmentation_exercise/saved_models/model.pth")
+torch.save(model.state_dict(), "/work3/s204164/DeepLearningCompVis/segmentation/saved_models/model.pth")
 print("Training has finished!")
