@@ -82,11 +82,15 @@ def plot_training_curves(
 		output_root.mkdir(parents=True, exist_ok=True)
 
 		loss_path = output_root / "loss_curve.png"
+		if loss_path.exists():
+			loss_path.unlink()
 		loss_fig.savefig(loss_path, bbox_inches="tight")
 		saved_paths["loss"] = loss_path
 
 		if metrics_fig is not None:
 			metrics_path = output_root / "metrics_curve.png"
+			if metrics_path.exists():
+				metrics_path.unlink()
 			metrics_fig.savefig(metrics_path, bbox_inches="tight")
 			saved_paths["metrics"] = metrics_path
 

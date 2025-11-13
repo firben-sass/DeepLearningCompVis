@@ -87,7 +87,7 @@ class DRIVE(_PaletteSegmentationMixin, torch.utils.data.Dataset):
         self.transform = transform
         self.label_transform = label_transform
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'DRIVE'))
+        base_dir = "/work3/s204164/DeepLearningCompVis/segmentation/data/DRIVE"
         split_dir = os.path.join(base_dir, split)
         image_dir = os.path.join(split_dir, 'images')
         label_dir = os.path.join(split_dir, 'labels')
@@ -172,7 +172,7 @@ class PH2(_PaletteSegmentationMixin, torch.utils.data.Dataset):
         self.transform = transform
         self.label_transform = label_transform
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'PH2_Dataset_images'))
+        base_dir = "/work3/s204164/DeepLearningCompVis/segmentation/data/PH2_Dataset_images"
         if not os.path.isdir(base_dir):
             raise FileNotFoundError(f'PH2 dataset directory not found at {base_dir}.')
 
