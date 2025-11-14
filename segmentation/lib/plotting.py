@@ -40,6 +40,10 @@ def plot_training_curves(
 	train_losses = list(loss_history["train"])
 	val_losses = list(loss_history["val"])
 
+	# remove nan values if any
+	train_losses = [loss for loss in train_losses if not (isinstance(loss, float) and (loss != loss))]
+	val_losses = [loss for loss in val_losses if not (isinstance(loss, float) and (loss != loss))]
+
 	if len(train_losses) != len(val_losses):
 		raise ValueError("Train and validation loss histories must be the same length")
 
@@ -47,10 +51,12 @@ def plot_training_curves(
 
 	# Validate metric histories to align with number of epochs.
 	for metric_name, values in score_history.items():
-		if len(values) != len(epochs):
+		if len(values) < len(epochs):
 			raise ValueError(
 				f"Metric '{metric_name}' history length ({len(values)}) does not match number of epochs ({len(epochs)})"
 			)
+		if len(values) > len(epochs):
+			score_history[metric_name] = values[: len(epochs)]
 
 	loss_fig, loss_ax = plt.subplots(figsize=(8, 5))
 	loss_ax.plot(epochs, train_losses, label="Train", color="steelblue", linewidth=2)
