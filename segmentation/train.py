@@ -19,7 +19,7 @@ from time import time
 from lib.model.EncDecModel import EncDec
 from lib.model.DilatedNetModel import DilatedNet
 from lib.model.UNetModel import UNet, UNet2
-from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation, CrossEntropySegmentationLoss
+from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation
 from lib.dataset.Datasets import PhC, CMP, DRIVE, PH2
 from lib.plotting import plot_training_curves
 from measure import (
@@ -34,7 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a segmentation model.")
     parser.add_argument(
         "--run-name",
-        required=True,
+        default="test_run",
         help="Unique name for this training run (used for saving artifacts).",
     )
     parser.add_argument(
@@ -49,6 +49,25 @@ def parse_args():
         choices=["PH2", "DRIVE"],
         default="PH2",
         help="Dataset to use for training and evaluation.",
+    )
+    parser.add_argument(
+        "--model",
+        type=lambda value: value.lower(),
+        choices=["encdec", "unet", "unet2", "dilatednet"],
+        default="encdec",
+        help="Segmentation architecture to train (case-insensitive).",
+    )
+    parser.add_argument(
+        "--loss",
+        type=lambda value: value.lower(),
+        choices=[
+            "bce",
+            "dice",
+            "focal",
+            "bce_tv",
+        ],
+        default="bce",
+        help="Loss function to optimise (case-insensitive).",
     )
     return parser.parse_args()
 
@@ -87,6 +106,22 @@ def main():
     }
     dataset_cls = dataset_map[args.dataset]
 
+    model_map = {
+        "encdec": EncDec,
+        "unet": UNet,
+        "unet2": UNet2,
+        "dilatednet": DilatedNet,
+    }
+    model_cls = model_map[args.model]
+
+    loss_map = {
+        "bce": BCELoss,
+        "dice": DiceLoss,
+        "focal": FocalLoss,
+        "bce_tv": BCELoss_TotalVariation,
+    }
+    loss_cls = loss_map[args.loss]
+
     # Prepare datasets and loaders based on the requested dataset.
     trainset = dataset_cls(split="train", transform=train_transform, label_transform=label_transform)
     testset = dataset_cls(split="test", transform=test_transform, label_transform=label_transform)
@@ -99,19 +134,13 @@ def main():
     # Training setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    # model = EncDec().to(device)
-    # model = UNet().to(device)  # TODO
-    model = UNet2().to(device)  # TODO
-    # model = DilatedNet().to(device)  # TODO
-    summary(model, (3, 256, 256))
+    print(f"Using model: {model_cls.__name__}")
+    model = model_cls().to(device)
+    summary(model, (3, size, size))
     learning_rate = 0.001
     opt = optim.Adam(model.parameters(), learning_rate)
 
-    # loss_fn = BCELoss()
-    # loss_fn = DiceLoss()  # TODO
-    # loss_fn = FocalLoss()  # TODO
-    # loss_fn = BCELoss_TotalVariation()  # TODO
-    loss_fn = BCELoss()
+    loss_fn = loss_cls()
     epochs = args.epochs
 
     metric_fns = {
@@ -124,6 +153,11 @@ def main():
     metric_history = {name: [] for name in metric_fns}
     train_losses = []
     val_losses = []
+
+    artifacts_root = Path(__file__).resolve().parent
+    model_dir = artifacts_root / "saved_models"
+    checkpoint_dir = model_dir / run_name
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     model.train()  # train mode
     for epoch in range(epochs):
@@ -176,14 +210,14 @@ def main():
         for name in metric_fns:
             print(f"   {name}: {metric_history[name][-1]:.4f}")
 
+        if (epoch + 1) % 10 == 0 or (epoch + 1) == epochs:
+            checkpoint_path = checkpoint_dir / f"epoch_{epoch + 1:03d}.pth"
+            torch.save(model.state_dict(), checkpoint_path)
+            print(f"   Saved checkpoint to {checkpoint_path}")
+
         model.train()
 
-    artifacts_root = Path(__file__).resolve().parent
-    model_dir = artifacts_root / "saved_models"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir / f"{run_name}.pth"
-    torch.save(model.state_dict(), model_path)
-    print(f"Training has finished! Model saved to {model_path}")
+    print(f"Training has finished! Models saved to {checkpoint_dir}")
 
     plots_dir = artifacts_root / "outputs" / "training_curves" / run_name
     plot_training_curves(
