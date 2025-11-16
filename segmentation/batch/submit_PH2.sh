@@ -32,12 +32,12 @@ source /work3/s204164/work3/s204164/etc/profile.d/conda.sh
 conda activate IDLCV
 python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
 	--run-name segmentation_PH2_encdec \
-	--epochs 500 \
+	--epochs 100 \
 	--dataset PH2 \
 	--model encdec
 
 python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
 	--run-name segmentation_PH2_unet2 \
-	--epochs 500 \
+	--epochs 100 \
 	--dataset PH2 \
 	--model unet2

@@ -37,7 +37,7 @@ def evaluate_model(
             for name, fn in metric_fns.items():
                 metrics_sums[name] += fn(predictions, y_batch)
 
-    num_batches = max(len(data_loader), 1)
+    num_batches = len(data_loader)
     avg_loss = total_loss / num_batches
     metrics_avg = {name: total / num_batches for name, total in metrics_sums.items()}
 

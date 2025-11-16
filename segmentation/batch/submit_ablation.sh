@@ -40,7 +40,7 @@ for dataset in "${DATASETS[@]}"; do
 		echo "Starting run ${run_name}"
 		python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
 			--run-name "${run_name}" \
-			--epochs 500 \
+			--epochs 100 \
 			--dataset "${dataset}" \
 			--loss "${loss}" \
 			--model "unet2"

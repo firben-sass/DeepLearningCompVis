@@ -42,7 +42,7 @@ def parse_args():
     parser.add_argument(
         "--epochs",
         type=int,
-        default=10,
+        default=100,
         help="Number of training epochs to execute.",
     )
     parser.add_argument(
@@ -56,7 +56,7 @@ def parse_args():
         "--model",
         type=lambda value: value.lower(),
         choices=["encdec", "unet", "unet2", "dilatednet"],
-        default="encdec",
+        default="unet2",
         help="Segmentation architecture to train (case-insensitive).",
     )
     parser.add_argument(
@@ -68,7 +68,7 @@ def parse_args():
             "focal",
             "bce_tv",
         ],
-        default="bce",
+        default="dice",
         help="Loss function to optimise (case-insensitive).",
     )
     return parser.parse_args()
@@ -184,7 +184,7 @@ def main():
 
             epoch_train_loss += loss.item()
 
-        epoch_train_loss /= max(len(train_loader), 1)
+        epoch_train_loss /= len(train_loader)
         train_losses.append(epoch_train_loss)
 
         epoch_val_loss, epoch_metrics = evaluate_model(

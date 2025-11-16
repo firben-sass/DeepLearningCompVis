@@ -5,15 +5,15 @@ Run metadata
 Dataset: PH2
 Model: UNet2
 Loss: DiceLoss
-Epochs: 500
-Best checkpoint epoch: 50
-Best checkpoint val_loss: -0.8077
+Epochs: 100
+Best checkpoint epoch: 10
+Best checkpoint val_loss: 0.5107
 
 Test evaluation
 ---------------
-Loss: -0.8780
-Accuracy: 0.3836
-Dice: 0.5173
-IoU: 0.3831
-Sensitivity: 0.9983
-Specificity: 0.0009
+Loss: 0.4542
+Accuracy: 0.3834
+Dice: 0.5177
+IoU: 0.3834
+Sensitivity: 1.0000
+Specificity: 0.0000

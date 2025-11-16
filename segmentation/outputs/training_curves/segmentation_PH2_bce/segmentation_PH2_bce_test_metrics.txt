@@ -5,15 +5,15 @@ Run metadata
 Dataset: PH2
 Model: UNet2
 Loss: BCELoss
-Epochs: 500
-Best checkpoint epoch: 10
-Best checkpoint val_loss: nan
+Epochs: 100
+Best checkpoint epoch: 40
+Best checkpoint val_loss: 0.2352
 
 Test evaluation
 ---------------
-Loss: nan
-Accuracy: 0.6166
-Dice: 0.0000
-IoU: 0.0000
-Sensitivity: 0.0000
-Specificity: 1.0000
+Loss: 0.1890
+Accuracy: 0.9301
+Dice: 0.8906
+IoU: 0.8116
+Sensitivity: 0.8318
+Specificity: 0.9771

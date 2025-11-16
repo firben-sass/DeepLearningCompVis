@@ -12,3 +12,5 @@ batch_output
 *.out
 *.png
 *.jpg
+*.txt
+*.json
