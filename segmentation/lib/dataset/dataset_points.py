@@ -22,6 +22,7 @@ class PH2Dataset(Dataset):
         split: str = "train",
         num_positive_points: int = 5,
         num_negative_points: int = 5,
+        sampling_strategy: str = "random",
         transform=None,
     ):
         """
@@ -31,6 +32,11 @@ class PH2Dataset(Dataset):
             split: 'train', 'val', or 'test'
             num_positive_points: Number of positive (foreground) points to sample
             num_negative_points: Number of negative (background) points to sample
+            sampling_strategy: Strategy for sampling points:
+                - 'random': Uniform random sampling (default)
+                - 'boundary': Sample near object boundaries
+                - 'center_biased': Sample more from center of object/background
+                - 'mixed': Combination of random and boundary sampling
             transform: Optional transform to apply to images
         """
         self.image_ids = image_ids
@@ -38,17 +44,236 @@ class PH2Dataset(Dataset):
         self.split = split
         self.num_positive_points = num_positive_points
         self.num_negative_points = num_negative_points
+        self.sampling_strategy = sampling_strategy
         self.transform = transform
+        
+        # Validate sampling strategy
+        valid_strategies = ['random', 'boundary', 'center_biased', 'mixed']
+        if sampling_strategy not in valid_strategies:
+            raise ValueError(f"sampling_strategy must be one of {valid_strategies}")
         
     def __len__(self) -> int:
         return len(self.image_ids)
+    
+    def _get_boundary_mask(self, binary_mask: np.ndarray, dilation_size: int = 5) -> np.ndarray:
+        """
+        Get boundary region of the mask using morphological operations.
+        
+        Args:
+            binary_mask: Binary mask (H, W) with values 0 or 1
+            dilation_size: Size of dilation kernel for boundary width
+            
+        Returns:
+            boundary_mask: Binary mask with 1s at boundary regions
+        """
+        from scipy import ndimage
+        
+        # Dilate the mask
+        dilated = ndimage.binary_dilation(binary_mask, iterations=dilation_size)
+        # Erode the mask
+        eroded = ndimage.binary_erosion(binary_mask, iterations=dilation_size)
+        
+        # Boundary is the difference
+        boundary = dilated.astype(np.uint8) - eroded.astype(np.uint8)
+        
+        return boundary
+    
+    def _get_distance_transform(self, binary_mask: np.ndarray) -> np.ndarray:
+        """
+        Compute distance transform for center-biased sampling.
+        
+        Args:
+            binary_mask: Binary mask (H, W)
+            
+        Returns:
+            distance_map: Distance from nearest boundary
+        """
+        from scipy import ndimage
+        
+        # Distance transform gives distance to nearest zero pixel
+        distance = ndimage.distance_transform_edt(binary_mask)
+        
+        return distance
+    
+    def _sample_points_random(
+        self, 
+        mask: np.ndarray,
+        num_points: int,
+        target_value: int
+    ) -> np.ndarray:
+        """
+        Random uniform sampling strategy.
+        
+        Args:
+            mask: Binary mask
+            num_points: Number of points to sample
+            target_value: Value to sample (0 or 1)
+            
+        Returns:
+            points: Array of shape (num_points, 2) with (x, y) coordinates
+        """
+        coords = np.argwhere(mask == target_value)  # (N, 2) in (y, x) format
+        
+        if len(coords) >= num_points:
+            indices = np.random.choice(len(coords), size=num_points, replace=False)
+        else:
+            indices = np.random.choice(len(coords), size=num_points, replace=True)
+        
+        points = coords[indices][:, [1, 0]]  # Convert to (x, y)
+        return points
+    
+    def _sample_points_boundary(
+        self, 
+        mask: np.ndarray,
+        num_points: int,
+        target_value: int
+    ) -> np.ndarray:
+        """
+        Boundary-focused sampling strategy.
+        Samples points near the boundary of the segmentation mask.
+        
+        This is useful because:
+        - Boundaries are the hardest to segment correctly
+        - Provides stronger supervision where it matters most
+        - Mimics how humans would click on uncertain regions
+        
+        Args:
+            mask: Binary mask
+            num_points: Number of points to sample
+            target_value: Value to sample (0 or 1)
+            
+        Returns:
+            points: Array of shape (num_points, 2) with (x, y) coordinates
+        """
+        if target_value == 1:  # Positive points - sample near foreground boundary
+            boundary = self._get_boundary_mask(mask, dilation_size=5)
+            # Get foreground pixels near boundary
+            valid_region = (mask == 1) & (boundary == 1)
+            
+            if valid_region.sum() < num_points // 2:
+                # If not enough boundary pixels, fall back to random foreground
+                valid_region = (mask == 1)
+        else:  # Negative points - sample near background boundary
+            boundary = self._get_boundary_mask(mask, dilation_size=5)
+            # Get background pixels near boundary
+            valid_region = (mask == 0) & (boundary == 1)
+            
+            if valid_region.sum() < num_points // 2:
+                # If not enough boundary pixels, fall back to random background
+                valid_region = (mask == 0)
+        
+        coords = np.argwhere(valid_region)  # (N, 2) in (y, x) format
+        
+        if len(coords) >= num_points:
+            indices = np.random.choice(len(coords), size=num_points, replace=False)
+        else:
+            indices = np.random.choice(len(coords), size=num_points, replace=True)
+        
+        points = coords[indices][:, [1, 0]]  # Convert to (x, y)
+        return points
+    
+    def _sample_points_center_biased(
+        self, 
+        mask: np.ndarray,
+        num_points: int,
+        target_value: int
+    ) -> np.ndarray:
+        """
+        Center-biased sampling strategy.
+        Samples more points from the center of regions (weighted by distance from boundary).
+        
+        This is useful because:
+        - Center points are less ambiguous
+        - Provides reliable supervision for core object regions
+        - Mimics intuitive clicking behavior
+        
+        Args:
+            mask: Binary mask
+            num_points: Number of points to sample
+            target_value: Value to sample (0 or 1)
+            
+        Returns:
+            points: Array of shape (num_points, 2) with (x, y) coordinates
+        """
+        coords = np.argwhere(mask == target_value)  # (N, 2) in (y, x) format
+        
+        if len(coords) == 0:
+            # Fallback to random if no valid coords
+            return self._sample_points_random(mask, num_points, target_value)
+        
+        # Compute distance transform for weighting
+        distance_map = self._get_distance_transform(mask == target_value)
+        
+        # Get distances at valid coordinates
+        distances = distance_map[coords[:, 0], coords[:, 1]]
+        
+        # Weights proportional to distance (prefer center points)
+        weights = distances + 1e-6  # Add small epsilon to avoid zero weights
+        weights = weights / weights.sum()
+        
+        # Sample with probability proportional to distance from boundary
+        if len(coords) >= num_points:
+            indices = np.random.choice(len(coords), size=num_points, replace=False, p=weights)
+        else:
+            indices = np.random.choice(len(coords), size=num_points, replace=True, p=weights)
+        
+        points = coords[indices][:, [1, 0]]  # Convert to (x, y)
+        return points
+    
+    def _sample_points_mixed(
+        self, 
+        mask: np.ndarray,
+        num_points: int,
+        target_value: int
+    ) -> np.ndarray:
+        """
+        Mixed sampling strategy.
+        Combines random, boundary, and center-biased sampling.
+        
+        This provides:
+        - Diverse supervision across the entire region
+        - Both easy (center) and hard (boundary) examples
+        - Good generalization
+        
+        Distribution:
+        - 50% random
+        - 25% boundary
+        - 25% center-biased
+        
+        Args:
+            mask: Binary mask
+            num_points: Number of points to sample
+            target_value: Value to sample (0 or 1)
+            
+        Returns:
+            points: Array of shape (num_points, 2) with (x, y) coordinates
+        """
+        n_random = num_points // 2
+        n_boundary = num_points // 4
+        n_center = num_points - n_random - n_boundary
+        
+        points_list = []
+        
+        if n_random > 0:
+            points_list.append(self._sample_points_random(mask, n_random, target_value))
+        if n_boundary > 0:
+            points_list.append(self._sample_points_boundary(mask, n_boundary, target_value))
+        if n_center > 0:
+            points_list.append(self._sample_points_center_biased(mask, n_center, target_value))
+        
+        points = np.vstack(points_list)
+        
+        # Shuffle to mix the different sampling strategies
+        np.random.shuffle(points)
+        
+        return points
     
     def _sample_points_from_mask(
         self, 
         mask: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Sample positive and negative points from a binary mask.
+        Sample positive and negative points from a binary mask using the specified strategy.
         
         Args:
             mask: Binary mask (H, W) with values 0 or 255
@@ -60,46 +285,19 @@ class PH2Dataset(Dataset):
         # Convert mask to binary
         binary_mask = (mask > 127).astype(np.uint8)
         
-        # Get coordinates of positive and negative pixels
-        positive_coords = np.argwhere(binary_mask == 1)  # (y, x) format
-        negative_coords = np.argwhere(binary_mask == 0)
+        # Select sampling function based on strategy
+        if self.sampling_strategy == 'random':
+            sample_fn = self._sample_points_random
+        elif self.sampling_strategy == 'boundary':
+            sample_fn = self._sample_points_boundary
+        elif self.sampling_strategy == 'center_biased':
+            sample_fn = self._sample_points_center_biased
+        elif self.sampling_strategy == 'mixed':
+            sample_fn = self._sample_points_mixed
         
-        # Sample points
-        if len(positive_coords) >= self.num_positive_points:
-            pos_indices = np.random.choice(
-                len(positive_coords), 
-                size=self.num_positive_points, 
-                replace=False
-            )
-            positive_points = positive_coords[pos_indices]
-        else:
-            # If not enough positive pixels, sample with replacement
-            pos_indices = np.random.choice(
-                len(positive_coords), 
-                size=self.num_positive_points, 
-                replace=True
-            )
-            positive_points = positive_coords[pos_indices]
-        
-        if len(negative_coords) >= self.num_negative_points:
-            neg_indices = np.random.choice(
-                len(negative_coords), 
-                size=self.num_negative_points, 
-                replace=False
-            )
-            negative_points = negative_coords[neg_indices]
-        else:
-            # If not enough negative pixels, sample with replacement
-            neg_indices = np.random.choice(
-                len(negative_coords), 
-                size=self.num_negative_points, 
-                replace=True
-            )
-            negative_points = negative_coords[neg_indices]
-        
-        # Convert from (y, x) to (x, y) format
-        positive_points = positive_points[:, [1, 0]]
-        negative_points = negative_points[:, [1, 0]]
+        # Sample positive and negative points
+        positive_points = sample_fn(binary_mask, self.num_positive_points, target_value=1)
+        negative_points = sample_fn(binary_mask, self.num_negative_points, target_value=0)
         
         return positive_points, negative_points
     
@@ -128,11 +326,9 @@ class PH2Dataset(Dataset):
         image = Image.open(image_path).convert('RGB')
         mask = Image.open(mask_path).convert('L')  # Grayscale
 
-        #target_size = (576, 768)
         target_size = (128, 128)
         image = image.resize(target_size[::-1], Image.BILINEAR)
         mask = mask.resize(target_size[::-1], Image.NEAREST)
-
         
         # Convert to numpy for processing
         image_np = np.array(image)
@@ -171,7 +367,6 @@ class PH2Dataset(Dataset):
         }
         
         return sample
-
 
 def create_ph2_splits(
     root_dir: str = "/dtu/datasets1/02516/PH2_Dataset_images/",
@@ -242,6 +437,7 @@ def create_dataloaders(
     random_seed: int = 42,
     num_workers: int = 4,
     transform=None,
+    sampling_strategy: str = "random",
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Create PyTorch DataLoaders for train, validation, and test sets.
@@ -257,6 +453,7 @@ def create_dataloaders(
         random_seed: Random seed for reproducibility
         num_workers: Number of worker processes for data loading
         transform: Optional transforms to apply
+
         
     Returns:
         train_loader, val_loader, test_loader
@@ -271,21 +468,24 @@ def create_dataloaders(
         train_ids, root_dir, split='train',
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
-        transform=transform
+        transform=transform,
+        sampling_strategy= sampling_strategy
     )
     
     val_dataset = PH2Dataset(
         val_ids, root_dir, split='val',
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
-        transform=transform
+        transform=transform,
+        sampling_strategy= sampling_strategy
     )
     
     test_dataset = PH2Dataset(
         test_ids, root_dir, split='test',
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
-        transform=transform
+        transform=transform,
+        sampling_strategy= sampling_strategy
     )
     
     # Create dataloaders
@@ -329,6 +529,7 @@ if __name__ == "__main__":
         num_positive_points=5,
         num_negative_points=5,
         random_seed=42,
+        sampling_strategy='random',
         # transform= transforms.Compose([transforms.Resize((size, size)),
         #                             transforms.ToTensor(),
         #                              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -388,46 +589,3 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig('point_labels_visualization.png', dpi=150, bbox_inches='tight')
     print("Saved visualization to 'point_labels_visualization.png'")
-    
-    # Print statistics about mask coverage
-    print("\n=== Mask Statistics ===")
-    binary_mask = mask.astype(np.uint8)
-    total_pixels = binary_mask.size
-    foreground_pixels = np.sum(binary_mask)
-    background_pixels = total_pixels - foreground_pixels
-    
-    print(f"Image shape: {img.shape}")
-    print(f"Mask shape: {mask.shape}")
-    print(f"Total pixels: {total_pixels:,}")
-    print(f"Foreground pixels: {foreground_pixels:,} ({100*foreground_pixels/total_pixels:.2f}%)")
-    print(f"Background pixels: {background_pixels:,} ({100*background_pixels/total_pixels:.2f}%)")
-    
-    # Verify points are correctly placed
-    print("\n=== Verifying Point Placement ===")
-    print("Checking if positive points are on foreground (mask value = 1):")
-    for i, pt in enumerate(pos_pts):
-        x, y = int(pt[0]), int(pt[1])
-        mask_value = mask[y, x]  # Note: mask indexing is [y, x]
-        print(f"  Positive point {i+1}: mask[{y}, {x}] = {mask_value} {'✓' if mask_value == 1 else '✗'}")
-    
-    print("\nChecking if negative points are on background (mask value = 0):")
-    for i, pt in enumerate(neg_pts):
-        x, y = int(pt[0]), int(pt[1])
-        mask_value = mask[y, x]
-        print(f"  Negative point {i+1}: mask[{y}, {x}] = {mask_value} {'✓' if mask_value == 0 else '✗'}")
-    
-    # Test loss functions
-    print("\n=== Testing Loss Functions ===")
-    
-    # Create dummy predictions (logits)
-    B, H, W = 4, 256, 256
-    pred_mask = torch.randn(B, 1, H, W)  # Random logits
-    
-    # Convert loaded points to tensors
-    pos_points = train_batch['positive_points'].float()  # (B, N_pos, 2)
-    neg_points = train_batch['negative_points'].float()  # (B, N_neg, 2)
-    
-    # Test point-click loss only
-    point_loss_fn = PointClickLoss()
-    loss = point_loss_fn(pred_mask, pos_points, neg_points)
-    print(f"Point-click loss: {loss.item():.4f}")
