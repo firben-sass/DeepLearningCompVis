@@ -23,6 +23,7 @@ class PH2Dataset(Dataset):
         num_positive_points: int = 5,
         num_negative_points: int = 5,
         sampling_strategy: str = "random",
+        image_size: Tuple[int, int] = (256, 256),
         transform=None,
     ):
         """
@@ -46,6 +47,7 @@ class PH2Dataset(Dataset):
         self.num_negative_points = num_negative_points
         self.sampling_strategy = sampling_strategy
         self.transform = transform
+        self.image_size = image_size
         
         # Validate sampling strategy
         valid_strategies = ['random', 'boundary', 'center_biased', 'mixed']
@@ -326,7 +328,7 @@ class PH2Dataset(Dataset):
         image = Image.open(image_path).convert('RGB')
         mask = Image.open(mask_path).convert('L')  # Grayscale
 
-        target_size = (128, 128)
+        target_size = self.image_size
         image = image.resize(target_size[::-1], Image.BILINEAR)
         mask = mask.resize(target_size[::-1], Image.NEAREST)
         
@@ -431,11 +433,12 @@ def create_dataloaders(
     batch_size: int = 8,
     num_positive_points: int = 5,
     num_negative_points: int = 5,
-    train_ratio: float = 0.7,
-    val_ratio: float = 0.15,
-    test_ratio: float = 0.15,
+    train_ratio: float = 0.6,
+    val_ratio: float = 0.2,
+    test_ratio: float = 0.2,
     random_seed: int = 42,
     num_workers: int = 4,
+    image_size: Tuple[int, int] = (256, 256),
     transform=None,
     sampling_strategy: str = "random",
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
@@ -469,7 +472,8 @@ def create_dataloaders(
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
         transform=transform,
-        sampling_strategy= sampling_strategy
+        sampling_strategy= sampling_strategy,
+        image_size= image_size
     )
     
     val_dataset = PH2Dataset(
@@ -477,7 +481,8 @@ def create_dataloaders(
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
         transform=transform,
-        sampling_strategy= sampling_strategy
+        sampling_strategy= sampling_strategy,
+        image_size= image_size
     )
     
     test_dataset = PH2Dataset(
@@ -485,7 +490,8 @@ def create_dataloaders(
         num_positive_points=num_positive_points,
         num_negative_points=num_negative_points,
         transform=transform,
-        sampling_strategy= sampling_strategy
+        sampling_strategy= sampling_strategy,
+        image_size= image_size
     )
     
     # Create dataloaders
@@ -521,7 +527,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     
-    size = 128
+    size = (256, 256)
 
     # Create dataloaders
     train_loader, val_loader, test_loader = create_dataloaders(
@@ -530,6 +536,7 @@ if __name__ == "__main__":
         num_negative_points=5,
         random_seed=42,
         sampling_strategy='random',
+        image_size= size,
         # transform= transforms.Compose([transforms.Resize((size, size)),
         #                             transforms.ToTensor(),
         #                              transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
