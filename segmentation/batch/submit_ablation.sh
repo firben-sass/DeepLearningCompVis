@@ -15,7 +15,7 @@
 ### -- specify that we want the job to get killed if it exceeds 5 GB per core/slot -- 
 #BSUB -M 5GB
 ### -- set walltime limit: hh:mm -- 
-#BSUB -W 01:00
+#BSUB -W 08:00
 ### -- set the email address -- 
 #BSUB -u s204164@dtu.dk
 ### -- send notification at completion -- 
@@ -30,7 +30,20 @@ nvidia-smi
 module load cuda/11.6
 source /work3/s204164/work3/s204164/etc/profile.d/conda.sh
 conda activate IDLCV
-python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
-	--run-name segmentation_PH2 \
-	--epochs 500 \
-	--dataset PH2
+
+DATASETS=("PH2" "DRIVE")
+LOSSES=("bce" "dice" "focal" "bce_tv")
+
+for dataset in "${DATASETS[@]}"; do
+	for loss in "${LOSSES[@]}"; do
+		run_name="segmentation_${dataset}_${loss}"
+		echo "Starting run ${run_name}"
+		python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
+			--run-name "${run_name}" \
+			--epochs 500 \
+			--dataset "${dataset}" \
+			--loss "${loss}" \
+			--model "unet2"
+		echo "Finished run ${run_name}"
+	done
+done

@@ -1,0 +1,19 @@
+Run: segmentation_PH2_focal
+
+Run metadata
+------------
+Dataset: PH2
+Model: UNet2
+Loss: FocalLoss
+Epochs: 500
+Best checkpoint epoch: 20
+Best checkpoint val_loss: 85203.5446
+
+Test evaluation
+---------------
+Loss: 64381.3722
+Accuracy: 0.8973
+Dice: 0.8133
+IoU: 0.7146
+Sensitivity: 0.7654
+Specificity: 0.9404

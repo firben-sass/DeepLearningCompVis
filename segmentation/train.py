@@ -22,6 +22,8 @@ from lib.model.UNetModel import UNet, UNet2
 from lib.losses import BCELoss, DiceLoss, FocalLoss, BCELoss_TotalVariation
 from lib.dataset.Datasets import PhC, CMP, DRIVE, PH2
 from lib.plotting import plot_training_curves
+from utils.evaluation import evaluate_model
+from utils.report_writer import write_metrics_report
 from measure import (
     accuracy,
     dice_overlap,
@@ -124,11 +126,14 @@ def main():
 
     # Prepare datasets and loaders based on the requested dataset.
     trainset = dataset_cls(split="train", transform=train_transform, label_transform=label_transform)
+    valset = dataset_cls(split="validate", transform=test_transform, label_transform=label_transform)
     testset = dataset_cls(split="test", transform=test_transform, label_transform=label_transform)
     train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=3)
+    val_loader = DataLoader(valset, batch_size=batch_size, shuffle=False, num_workers=3)
     test_loader = DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=3)
 
     print(f"Loaded {len(trainset)} {args.dataset} training images")
+    print(f"Loaded {len(valset)} {args.dataset} validation images")
     print(f"Loaded {len(testset)} {args.dataset} test images")
 
     # Training setup
@@ -160,6 +165,7 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     model.train()  # train mode
+    checkpoint_records = []
     for epoch in range(epochs):
         tic = time()
         print(f"* Epoch {epoch + 1}/{epochs}")
@@ -181,29 +187,15 @@ def main():
         epoch_train_loss /= max(len(train_loader), 1)
         train_losses.append(epoch_train_loss)
 
-        model.eval()
-
-        epoch_val_loss = 0.0
-        metrics_sums = {name: 0.0 for name in metric_fns}
-        with torch.no_grad():
-            for X_val, y_val in test_loader:
-                X_val = X_val.to(device)
-                y_val = y_val.to(device)
-
-                logits = model(X_val)
-                val_loss = loss_fn(logits, y_val)
-                epoch_val_loss += val_loss.item()
-
-                predictions = (torch.sigmoid(logits) > 0.5).float()
-                for name, fn in metric_fns.items():
-                    metrics_sums[name] += fn(predictions, y_val)
-
-        num_val_batches = max(len(test_loader), 1)
-        epoch_val_loss /= num_val_batches
+        epoch_val_loss, epoch_metrics = evaluate_model(
+            model=model,
+            data_loader=val_loader,
+            loss_fn=loss_fn,
+            metric_fns=metric_fns,
+            device=device,
+        )
         val_losses.append(epoch_val_loss)
-
-        for name in metric_fns:
-            metric_value = metrics_sums[name] / num_val_batches
+        for name, metric_value in epoch_metrics.items():
             metric_history[name].append(metric_value)
 
         print(f" - train_loss: {epoch_train_loss:.4f} | val_loss: {epoch_val_loss:.4f}")
@@ -213,11 +205,36 @@ def main():
         if (epoch + 1) % 10 == 0 or (epoch + 1) == epochs:
             checkpoint_path = checkpoint_dir / f"epoch_{epoch + 1:03d}.pth"
             torch.save(model.state_dict(), checkpoint_path)
+            checkpoint_records.append({
+                "epoch": epoch + 1,
+                "val_loss": epoch_val_loss,
+                "path": checkpoint_path,
+            })
             print(f"   Saved checkpoint to {checkpoint_path}")
 
-        model.train()
-
     print(f"Training has finished! Models saved to {checkpoint_dir}")
+
+    if not checkpoint_records:
+        raise RuntimeError("No checkpoints were saved; cannot select best model.")
+
+    best_checkpoint = min(checkpoint_records, key=lambda record: record["val_loss"])
+    print(
+        "Best checkpoint by validation loss: "
+        f"epoch {best_checkpoint['epoch']} with val_loss {best_checkpoint['val_loss']:.4f}"
+    )
+
+    model.load_state_dict(torch.load(best_checkpoint["path"], map_location=device))
+
+    test_loss, test_metrics = evaluate_model(
+        model=model,
+        data_loader=test_loader,
+        loss_fn=loss_fn,
+        metric_fns=metric_fns,
+        device=device,
+    )
+    print(f"Test loss: {test_loss:.4f}")
+    for name, value in test_metrics.items():
+        print(f"Test {name}: {value:.4f}")
 
     plots_dir = artifacts_root / "outputs" / "training_curves" / run_name
     plot_training_curves(
@@ -227,6 +244,23 @@ def main():
         show=False,
     )
     print(f"Training curves written to {plots_dir}")
+
+    metadata = [
+        ("Dataset", args.dataset),
+        ("Model", model_cls.__name__),
+        ("Loss", loss_cls.__name__),
+        ("Epochs", epochs),
+        ("Best checkpoint epoch", best_checkpoint["epoch"]),
+        ("Best checkpoint val_loss", f"{best_checkpoint['val_loss']:.4f}"),
+    ]
+    report_path = write_metrics_report(
+        output_dir=plots_dir,
+        run_name=run_name,
+        metadata=metadata,
+        test_loss=test_loss,
+        test_metrics=test_metrics,
+    )
+    print(f"Test metrics written to {report_path}")
 
 
 if __name__ == "__main__":

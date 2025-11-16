@@ -35,3 +35,9 @@ python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
 	--epochs 500 \
 	--dataset DRIVE \
 	--model encdec
+
+python -u /work3/s204164/DeepLearningCompVis/segmentation/train.py \
+	--run-name segmentation_DRIVE_unet2 \
+	--epochs 500 \
+	--dataset DRIVE \
+	--model unet2

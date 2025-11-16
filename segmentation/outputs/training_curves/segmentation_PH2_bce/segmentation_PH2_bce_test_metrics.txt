@@ -1,0 +1,19 @@
+Run: segmentation_PH2_bce
+
+Run metadata
+------------
+Dataset: PH2
+Model: UNet2
+Loss: BCELoss
+Epochs: 500
+Best checkpoint epoch: 10
+Best checkpoint val_loss: nan
+
+Test evaluation
+---------------
+Loss: nan
+Accuracy: 0.6166
+Dice: 0.0000
+IoU: 0.0000
+Sensitivity: 0.0000
+Specificity: 1.0000

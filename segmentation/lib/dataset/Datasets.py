@@ -172,17 +172,42 @@ class PH2(_PaletteSegmentationMixin, torch.utils.data.Dataset):
         self.transform = transform
         self.label_transform = label_transform
 
-        base_dir = "/work3/s204164/DeepLearningCompVis/segmentation/data/PH2_Dataset_images"
-        if not os.path.isdir(base_dir):
-            raise FileNotFoundError(f'PH2 dataset directory not found at {base_dir}.')
+        dataset_root = "/work3/s204164/DeepLearningCompVis/segmentation/data"
+        if not os.path.isdir(dataset_root):
+            raise FileNotFoundError(f'PH2 dataset directory not found at {dataset_root}.')
 
-        case_dirs = sorted([path for path in glob.glob(os.path.join(base_dir, 'IMD*')) if os.path.isdir(path)])
+        split_root = os.path.join(dataset_root, 'PH2_split')
+        if not os.path.isdir(split_root):
+            raise FileNotFoundError(
+                f"PH2 split directory not found at {split_root}. Run split_PH2.py before using this dataset."
+            )
+
+        split_dir = os.path.join(split_root, split)
+        if not os.path.isdir(split_dir):
+            raise FileNotFoundError(f"Split directory '{split_dir}' does not exist.")
+
+        case_dirs = sorted(
+            [path for path in glob.glob(os.path.join(split_dir, 'IMD*')) if os.path.isdir(path)]
+        )
         if not case_dirs:
-            raise RuntimeError(f'No PH2 cases found under {base_dir}.')
+            raise RuntimeError(f'No PH2 cases found under {split_dir}.')
 
-        # Gather sample metadata before splitting so we can determine a consistent crop.
-        all_samples = []
-        for case_dir in case_dirs:
+        # Gather metadata from the entire split dataset to enforce a consistent crop size.
+        all_case_dirs = sorted(
+            [
+                path
+                for path in glob.glob(os.path.join(split_root, '*', 'IMD*'))
+                if os.path.isdir(path)
+            ]
+        )
+        if not all_case_dirs:
+            raise RuntimeError(f'No PH2 cases were collected from {split_root}.')
+
+        case_samples = {}
+        self.samples = []
+        widths, heights = [], []
+        for case_dir in all_case_dirs:
+            case_name = os.path.basename(case_dir)
             image_candidates = sorted(glob.glob(os.path.join(case_dir, '*_Dermoscopic_Image', '*.bmp')))
             if not image_candidates:
                 raise FileNotFoundError(f'No dermoscopic image found in {case_dir}.')
@@ -194,41 +219,30 @@ class PH2(_PaletteSegmentationMixin, torch.utils.data.Dataset):
             label_path = label_candidates[0]
             with Image.open(image_path) as img:
                 width, height = img.size
-            all_samples.append({
+
+            case_samples[case_name] = {
                 'case_dir': case_dir,
                 'image_path': image_path,
                 'label_path': label_path,
                 'width': width,
                 'height': height,
-            })
+            }
+            widths.append(width)
+            heights.append(height)
 
-        if not all_samples:
-            raise RuntimeError(f'No PH2 samples were collected from {base_dir}.')
+        self.target_width = min(widths)
+        self.target_height = min(heights)
 
-        self.target_width = min(sample['width'] for sample in all_samples)
-        self.target_height = min(sample['height'] for sample in all_samples)
-
-        split_names = ('train', 'validate', 'test')
-        split_arrays = np.array_split(np.array(case_dirs, dtype=object), len(split_names))
-        split_map = {
-            name: list(arr.tolist()) if len(arr) else []
-            for name, arr in zip(split_names, split_arrays)
-        }
-
-        self.case_dirs = split_map.get(self.split, case_dirs)
-        if not self.case_dirs:
-            self.case_dirs = case_dirs
-
-        selected_case_dirs = set(self.case_dirs)
-        self.samples = []
-        for sample in all_samples:
-            if sample['case_dir'] not in selected_case_dirs:
-                continue
+        for case_dir in case_dirs:
+            case_name = os.path.basename(case_dir)
+            sample = case_samples.get(case_name)
+            if sample is None:
+                raise RuntimeError(f'Case {case_name} was not indexed in {split_root}.')
             crop_box = self._center_crop_box(sample['width'], sample['height'])
             self.samples.append((sample['image_path'], sample['label_path'], crop_box))
 
         if not self.samples:
-            raise RuntimeError(f'No PH2 samples were collected from {base_dir}.')
+            raise RuntimeError(f'No PH2 samples were collected from {split_dir}.')
 
     def __len__(self):
         'Returns the total number of samples'

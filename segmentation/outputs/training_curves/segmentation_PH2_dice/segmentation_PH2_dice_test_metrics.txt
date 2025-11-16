@@ -1,0 +1,19 @@
+Run: segmentation_PH2_dice
+
+Run metadata
+------------
+Dataset: PH2
+Model: UNet2
+Loss: DiceLoss
+Epochs: 500
+Best checkpoint epoch: 50
+Best checkpoint val_loss: -0.8077
+
+Test evaluation
+---------------
+Loss: -0.8780
+Accuracy: 0.3836
+Dice: 0.5173
+IoU: 0.3831
+Sensitivity: 0.9983
+Specificity: 0.0009
