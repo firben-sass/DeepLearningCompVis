@@ -46,6 +46,8 @@ parser.add_argument('--num_positive_points', type=int, default=5,
                     help='Number of positive points (default: 5)')
 parser.add_argument('--num_negative_points', type=int, default=5,
                     help='Number of negative points (default: 5)')
+parser.add_argument('--sampling_strategy', type=str, default='random',
+                    help='Sampling Strategy: random, boundary, center_biased, mixed (default: random)')
 parser.add_argument('--random_seed', type=int, default=42,
                     help='Random seed (default: 42)')
 
@@ -73,6 +75,7 @@ with open(config_file, 'w') as f:
     f.write(f"Image Size:         {args.image_size}\n")
     f.write(f"Positive Points:    {args.num_positive_points}\n")
     f.write(f"Negative Points:    {args.num_negative_points}\n")
+    f.write(f"Sampling Strategy:    {args.sampling_strategy}\n")
     f.write(f"Random Seed:        {args.random_seed}\n")
     f.write(f"{'='*50}\n")
 print(f"Configuration saved to: {config_file}\n")
@@ -85,6 +88,8 @@ train_loader, val_loader, test_loader = create_dataloaders(
     num_positive_points=args.num_positive_points,
     num_negative_points=args.num_negative_points,
     random_seed=args.random_seed,
+    sampling_strategy=args.sampling_strategy,
+    image_size= args.image_size,
 )
 
 # ============================================================================
