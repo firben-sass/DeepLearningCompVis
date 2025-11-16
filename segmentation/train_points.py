@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import glob
+import argparse
 from pathlib import Path
 import PIL.Image as Image
 
@@ -27,27 +28,75 @@ from measure import (
     specificity,
 )
 
-size = 256
-batch_size = 6
+# ============================================================================
+# Parse Command Line Arguments
+# ============================================================================
+parser = argparse.ArgumentParser(description='Train UNet model with point-click supervision')
+parser.add_argument('--run_name', type=str, required=True,
+                    help='Name for this training run (creates output folder)')
+parser.add_argument('--learning_rate', '--lr', type=float, default=0.001,
+                    help='Learning rate (default: 0.001)')
+parser.add_argument('--batch_size', '--bs', type=int, default=6,
+                    help='Batch size (default: 6)')
+parser.add_argument('--epochs', type=int, default=100,
+                    help='Number of epochs (default: 100)')
+parser.add_argument('--image_size', '--size', type=int, default=256,
+                    help='Image size (default: 256)')
+parser.add_argument('--num_positive_points', type=int, default=5,
+                    help='Number of positive points (default: 5)')
+parser.add_argument('--num_negative_points', type=int, default=5,
+                    help='Number of negative points (default: 5)')
+parser.add_argument('--random_seed', type=int, default=42,
+                    help='Random seed (default: 42)')
 
-# Create dataloaders
+args = parser.parse_args()
+
+# ============================================================================
+# Create Output Directory
+# ============================================================================
+output_dir = Path(__file__).resolve().parent / "outputs" / args.run_name
+output_dir.mkdir(parents=True, exist_ok=True)
+print(f"\n{'='*80}")
+print(f"RUN NAME: {args.run_name}")
+print(f"OUTPUT DIRECTORY: {output_dir}")
+print(f"{'='*80}\n")
+
+# Save configuration
+config_file = output_dir / "config.txt"
+with open(config_file, 'w') as f:
+    f.write(f"Training Configuration\n")
+    f.write(f"{'='*50}\n")
+    f.write(f"Run Name:           {args.run_name}\n")
+    f.write(f"Learning Rate:      {args.learning_rate}\n")
+    f.write(f"Batch Size:         {args.batch_size}\n")
+    f.write(f"Epochs:             {args.epochs}\n")
+    f.write(f"Image Size:         {args.image_size}\n")
+    f.write(f"Positive Points:    {args.num_positive_points}\n")
+    f.write(f"Negative Points:    {args.num_negative_points}\n")
+    f.write(f"Random Seed:        {args.random_seed}\n")
+    f.write(f"{'='*50}\n")
+print(f"Configuration saved to: {config_file}\n")
+
+# ============================================================================
+# Create Dataloaders
+# ============================================================================
 train_loader, val_loader, test_loader = create_dataloaders(
-    batch_size=batch_size,
-    num_positive_points=5,
-    num_negative_points=5,
-    random_seed=42,
+    batch_size=args.batch_size,
+    num_positive_points=args.num_positive_points,
+    num_negative_points=args.num_negative_points,
+    random_seed=args.random_seed,
 )
 
-# Training setup
+# ============================================================================
+# Training Setup
+# ============================================================================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f'Using device: {device}')
 model = UNet2().to(device)
-summary(model, (3, 256, 256))
+summary(model, (3, args.image_size, args.image_size))
 
-learning_rate = 0.001
-opt = optim.Adam(model.parameters(), learning_rate)
+opt = optim.Adam(model.parameters(), args.learning_rate)
 loss_fn = PointClickLoss()
-epochs = 100
 
 # Metric functions
 metric_fns = {
@@ -61,10 +110,17 @@ metric_history = {name: [] for name in metric_fns}
 train_losses = []
 val_losses = []
 
+# ============================================================================
+# Training Loop
+# ============================================================================
+print(f"\n{'='*80}")
+print(f"STARTING TRAINING")
+print(f"{'='*80}\n")
+
 model.train()  # train mode
-for epoch in range(epochs):
+for epoch in range(args.epochs):
     tic = time()
-    print(f'* Epoch {epoch+1}/{epochs}')
+    print(f'* Epoch {epoch+1}/{args.epochs}')
 
     epoch_train_loss = 0.0
     for batch in train_loader:
@@ -134,18 +190,27 @@ for epoch in range(epochs):
 
     model.train()
 
-# Save the model
-torch.save(model.state_dict(), "model.pth")
-print("Training has finished!")
+# ============================================================================
+# Save Model and Training Curves
+# ============================================================================
+model_path = output_dir / "model.pth"
+torch.save(model.state_dict(), model_path)
+print(f"\n{'='*80}")
+print(f"Training has finished!")
+print(f"Model saved to: {model_path}")
+print(f"{'='*80}\n")
 
-plots_dir = Path(__file__).resolve().parent / "outputs" / "training_curves"
 plot_training_curves(
     {"train": train_losses, "val": val_losses},
     metric_history,
-    output_dir=plots_dir,
+    output_dir=output_dir,
     show=False,
 )
+print(f"Training curves saved to: {output_dir}")
 
+# ============================================================================
+# Test Set Evaluation
+# ============================================================================
 print("\n" + "="*80)
 print("EVALUATING ON TEST SET")
 print("="*80)
@@ -192,18 +257,57 @@ for name, value in test_metrics.items():
     print(f"{name:15s}: {value:.4f}")
 
 # ============================================================================
-# Visualize Example Predictions
+# Calculate Overall Test Metrics
 # ============================================================================
 import matplotlib.pyplot as plt
 
 print("\n" + "="*80)
-print("VISUALIZING EXAMPLE PREDICTIONS")
+print("OVERALL TEST METRICS")
 print("="*80)
 
 # Concatenate all batches
 all_predictions = torch.cat(all_predictions, dim=0)
 all_masks = torch.cat(all_masks, dim=0)
 all_images = torch.cat(all_images, dim=0)
+
+# Calculate overall metrics on all predictions
+overall_metrics = {}
+for name, fn in metric_fns.items():
+    metric_value = fn(all_predictions, all_masks)
+    # Handle both tensor and float returns
+    if isinstance(metric_value, torch.Tensor):
+        overall_metrics[name] = metric_value.item()
+    else:
+        overall_metrics[name] = metric_value
+
+# Print overall metrics
+print(f"\nOverall Metrics (on {len(all_predictions)} images):")
+print(f"  Dice:        {overall_metrics['Dice']:.4f}")
+print(f"  IoU:         {overall_metrics['IoU']:.4f}")
+print(f"  Accuracy:    {overall_metrics['Accuracy']:.4f}")
+print(f"  Sensitivity: {overall_metrics['Sensitivity']:.4f}")
+print(f"  Specificity: {overall_metrics['Specificity']:.4f}")
+
+# Save metrics to file
+metrics_file = output_dir / "test_metrics.txt"
+with open(metrics_file, 'w') as f:
+    f.write(f"Test Set Metrics\n")
+    f.write(f"{'='*50}\n")
+    f.write(f"Number of images: {len(all_predictions)}\n\n")
+    f.write(f"Dice:        {overall_metrics['Dice']:.4f}\n")
+    f.write(f"IoU:         {overall_metrics['IoU']:.4f}\n")
+    f.write(f"Accuracy:    {overall_metrics['Accuracy']:.4f}\n")
+    f.write(f"Sensitivity: {overall_metrics['Sensitivity']:.4f}\n")
+    f.write(f"Specificity: {overall_metrics['Specificity']:.4f}\n")
+    f.write(f"{'='*50}\n")
+print(f"\nTest metrics saved to: {metrics_file}")
+
+# ============================================================================
+# Visualize Example Predictions
+# ============================================================================
+print("\n" + "="*80)
+print("VISUALIZING EXAMPLE PREDICTIONS")
+print("="*80)
 
 # Select 4 random examples
 num_examples = min(4, len(all_predictions))
@@ -259,21 +363,14 @@ for i, idx in enumerate(indices):
     axes[i, 3].imshow(overlay)
     axes[i, 3].set_title(f"Overlay\nDice: {img_metrics['Dice']:.3f} | IoU: {img_metrics['IoU']:.3f}")
     axes[i, 3].axis('off')
-    
-    print(f"\nImage {i+1}: {image_id}")
-    print(f"  Dice:        {img_metrics['Dice']:.4f}")
-    print(f"  IoU:         {img_metrics['IoU']:.4f}")
-    print(f"  Accuracy:    {img_metrics['Accuracy']:.4f}")
-    print(f"  Sensitivity: {img_metrics['Sensitivity']:.4f}")
-    print(f"  Specificity: {img_metrics['Specificity']:.4f}")
 
 plt.tight_layout()
-output_path = plots_dir / "test_predictions.png"
-output_path.parent.mkdir(parents=True, exist_ok=True)
+output_path = output_dir / "test_predictions.png"
 plt.savefig(output_path, dpi=150, bbox_inches='tight')
 print(f"\nVisualization saved to: {output_path}")
 plt.close()
 
 print("\n" + "="*80)
 print("EVALUATION COMPLETE")
+print(f"All outputs saved to: {output_dir}")
 print("="*80)
