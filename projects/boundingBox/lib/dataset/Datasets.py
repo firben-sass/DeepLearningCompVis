@@ -1,90 +1,210 @@
-import torch
 import os
 import glob
+import re
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
 import numpy as np
-import PIL.Image as Image
+import torch
+from PIL import Image
 
 
-class DRIVE(_PaletteSegmentationMixin, torch.utils.data.Dataset):
-    def __init__(self, split='train', transform=None, label_transform=None):
-        'Initialization'
+def _natural_key(path: str) -> List[object]:
+    """Return a sort key that keeps numbered files in numeric order."""
+    basename = os.path.basename(path)
+    return [int(chunk) if chunk.isdigit() else chunk.lower() for chunk in re.split(r"(\d+)", basename)]
+
+
+class BoundingBoxDataset(torch.utils.data.Dataset):
+    """Dataset that loads RGB images and Pascal VOC style XML annotations."""
+
+    _IMAGE_PATTERNS: Sequence[str] = ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff")
+
+    def __init__(
+        self,
+        split: str = "train",
+        transform: Optional[Callable] = None,
+        label_transform: Optional[Callable] = None,
+        data_root: Optional[Path] = None,
+        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        seed: int = 1337,
+    ) -> None:
         if isinstance(split, bool):
-            split = 'train' if split else 'test'
+            split = "train" if split else "test"
         if not isinstance(split, str):
-            raise TypeError('split must be a bool or a string.')
+            raise TypeError("split must be a bool or a string.")
 
         split = split.lower()
-        if split == 'val':
-            split = 'validate'
+        if split == "val":
+            split = "validate"
 
-        valid_splits = {'train', 'validate', 'test'}
+        valid_splits = ("train", "validate", "test")
         if split not in valid_splits:
-            raise ValueError(f"Unsupported split '{split}'. Choose from {sorted(valid_splits)}.")
+            raise ValueError(f"Unsupported split '{split}'. Choose from {valid_splits}.")
 
-        self.split = split
+        if data_root is None:
+            data_root = Path(__file__).resolve().parents[2] / "data"
+        self.data_root = Path(data_root)
+        self.image_dir = self.data_root / "images"
+        self.annotation_dir = self.data_root / "annotations"
+        if not self.image_dir.is_dir():
+            raise FileNotFoundError(f"No image directory found at {self.image_dir}.")
+        if not self.annotation_dir.is_dir():
+            raise FileNotFoundError(f"No annotation directory found at {self.annotation_dir}.")
+
         self.transform = transform
-        self.label_transform = label_transform
+        self.target_transform = label_transform
+        self.split = split
+        self.split_ratios = split_ratios
+        self.seed = seed
+        self.class_to_idx: Dict[str, int] = {"pothole": 1}
 
-        base_dir = "/work3/s204164/DeepLearningCompVis/segmentation/data/DRIVE"
-        split_dir = os.path.join(base_dir, split)
-        image_dir = os.path.join(split_dir, 'images')
-        label_dir = os.path.join(split_dir, 'labels')
+        all_samples = self._collect_samples()
+        if not all_samples:
+            raise FileNotFoundError(f"No paired image/XML files found under {self.data_root}.")
 
-        if not os.path.isdir(image_dir):
-            raise FileNotFoundError(f'No DRIVE images directory found at {image_dir}.')
-        if not os.path.isdir(label_dir):
-            raise FileNotFoundError(f'No DRIVE labels directory found at {label_dir}.')
+        split_mapping = self._build_split_mapping(all_samples)
+        self.samples: List[Tuple[str, str]] = split_mapping.get(split, [])
+        if not self.samples:
+            raise RuntimeError(
+                f"Requested split '{split}' is empty. Provide a split file or adjust split ratios."
+            )
 
-        image_patterns = ('*.tif', '*.tiff', '*.png', '*.jpg', '*.jpeg', '*.bmp')
-        image_paths = []
-        for pattern in image_patterns:
-            image_paths.extend(glob.glob(os.path.join(image_dir, pattern)))
-        self.image_paths = sorted(image_paths)
-        if not self.image_paths:
-            raise FileNotFoundError(f'No DRIVE images found in {image_dir}.')
+    def _collect_samples(self) -> List[Tuple[str, str]]:
+        image_paths: List[str] = []
+        for pattern in self._IMAGE_PATTERNS:
+            image_paths.extend(glob.glob(str(self.image_dir / pattern)))
+        image_paths = sorted(set(image_paths), key=_natural_key)
 
-        label_lookup = {}
-        for pattern in ('*.png', '*.gif', '*.tif', '*.tiff'):
-            for label_path in glob.glob(os.path.join(label_dir, pattern)):
-                stem = os.path.splitext(os.path.basename(label_path))[0]
-                parts = stem.rsplit('_', 1)
-                key = parts[0] if len(parts) > 1 else stem
-                label_lookup.setdefault(key, label_path)
+        samples: List[Tuple[str, str]] = []
+        missing_xml: List[str] = []
+        for image_path in image_paths:
+            stem = Path(image_path).stem
+            xml_path = self.annotation_dir / f"{stem}.xml"
+            if xml_path.is_file():
+                samples.append((image_path, str(xml_path)))
+            else:
+                missing_xml.append(stem)
 
-        if not label_lookup:
-            raise FileNotFoundError(f'No DRIVE labels found in {label_dir}.')
+        if missing_xml:
+            missing_list = ", ".join(missing_xml[:5])
+            extra = "" if len(missing_xml) <= 5 else f" (+{len(missing_xml) - 5} more)"
+            raise FileNotFoundError(
+                f"Missing XML annotations for: {missing_list}{extra}. Please ensure every image has a matching XML file."
+            )
+        return samples
 
-        self.samples = []
-        for image_path in self.image_paths:
-            image_stem = os.path.splitext(os.path.basename(image_path))[0]
-            image_key_parts = image_stem.rsplit('_', 1)
-            image_key = image_key_parts[0] if len(image_key_parts) > 1 else image_stem
-            label_path = label_lookup.get(image_key)
-            if label_path is None:
-                raise FileNotFoundError(f'No matching label found for {os.path.basename(image_path)} in {label_dir}.')
-            self.samples.append((image_path, label_path))
+    def _build_split_mapping(self, samples: Sequence[Tuple[str, str]]) -> Dict[str, List[Tuple[str, str]]]:
+        split_file = self.data_root / f"{self.split}.txt"
+        if split_file.is_file():
+            requested = self._load_split_from_file(split_file)
+            lookup = {Path(img).stem: (img, ann) for img, ann in samples}
+            resolved = []
+            unknown: List[str] = []
+            for stem in requested:
+                entry = lookup.get(stem)
+                if entry:
+                    resolved.append(entry)
+                else:
+                    unknown.append(stem)
+            if unknown:
+                missing = ", ".join(unknown[:5])
+                extra = "" if len(unknown) <= 5 else f" (+{len(unknown) - 5} more)"
+                raise FileNotFoundError(
+                    f"Split file {split_file} references unknown samples: {missing}{extra}."
+                )
+            return {self.split: resolved}
 
-    def __len__(self):
-        'Returns the total number of samples'
+        train_ratio, val_ratio, test_ratio = self.split_ratios
+        if not np.isclose(train_ratio + val_ratio + test_ratio, 1.0):
+            raise ValueError("Split ratios must sum to 1.0.")
+
+        rng = np.random.RandomState(self.seed)
+        shuffled = list(samples)
+        rng.shuffle(shuffled)
+
+        total = len(shuffled)
+        train_end = int(total * train_ratio)
+        val_end = train_end + int(total * val_ratio)
+        train_split = shuffled[:train_end]
+        val_split = shuffled[train_end:val_end]
+        test_split = shuffled[val_end:]
+        return {"train": train_split, "validate": val_split, "test": test_split}
+
+    @staticmethod
+    def _load_split_from_file(path: Path) -> List[str]:
+        with path.open("r", encoding="utf-8") as handle:
+            return [line.strip() for line in handle if line.strip()]
+
+    @staticmethod
+    def _pil_to_tensor(image: Image.Image) -> torch.Tensor:
+        array = np.array(image, dtype=np.float32)
+        if array.ndim == 2:
+            array = array[None, :, :]
+        else:
+            array = array.transpose(2, 0, 1)
+        return torch.from_numpy(array / 255.0)
+
+    def _parse_annotation(self, annotation_path: str) -> Tuple[torch.Tensor, torch.Tensor]:
+        tree = ET.parse(annotation_path)
+        root = tree.getroot()
+
+        boxes: List[List[float]] = []
+        labels: List[int] = []
+        for obj in root.findall("object"):
+            name = obj.findtext("name", default="pothole").strip().lower()
+            bbox = obj.find("bndbox")
+            if bbox is None:
+                continue
+            xmin = float(bbox.findtext("xmin", default="0"))
+            ymin = float(bbox.findtext("ymin", default="0"))
+            xmax = float(bbox.findtext("xmax", default="0"))
+            ymax = float(bbox.findtext("ymax", default="0"))
+            boxes.append([xmin, ymin, xmax, ymax])
+            labels.append(self.class_to_idx.get(name, 1))
+
+        if boxes:
+            boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+            labels_tensor = torch.tensor(labels, dtype=torch.int64)
+        else:
+            boxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
+            labels_tensor = torch.zeros((0,), dtype=torch.int64)
+        return boxes_tensor, labels_tensor
+
+    def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx):
-        'Generates one sample of data'
-        image_path, label_path = self.samples[idx]
+    def __getitem__(self, idx: int):
+        image_path, annotation_path = self.samples[idx]
 
         with Image.open(image_path) as img:
-            image = img.convert('RGB')
-        with Image.open(label_path) as lbl:
-            label = lbl.convert('L')
+            image = img.convert("RGB")
+
+        boxes, labels = self._parse_annotation(annotation_path)
+        target = {
+            "boxes": boxes,
+            "labels": labels,
+            "image_id": torch.tensor(idx, dtype=torch.int64),
+            "iscrowd": torch.zeros(labels.shape[0], dtype=torch.int64),
+        }
+        if boxes.numel():
+            widths = boxes[:, 2] - boxes[:, 0]
+            heights = boxes[:, 3] - boxes[:, 1]
+            target["area"] = widths * heights
+        else:
+            target["area"] = torch.zeros((0,), dtype=torch.float32)
+
+        target["size"] = torch.tensor([image.height, image.width], dtype=torch.int64)
+        target["image_path"] = image_path
+        target["annotation_path"] = annotation_path
 
         if self.transform is not None:
-            X = self.transform(image)
+            transformed = self.transform(image)
         else:
-            X = self._pil_to_tensor(image)
+            transformed = self._pil_to_tensor(image)
 
-        if self.label_transform is not None:
-            Y = self.label_transform(label)
-        else:
-            Y = self._pil_to_tensor(label)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
 
-        return X, Y
+        return transformed, target
