@@ -4,7 +4,7 @@ import argparse
 
 import torch
 from torch.utils.data import DataLoader
-from torchvision import T as T
+from torchvision import transforms as T
 
 from lib.model.mobilnet import ProposalClassifier
 from lib.dataset.Datasets import PotholeDataset
@@ -12,12 +12,12 @@ from train import train
 
 def parse_args() -> argparse.Namespace:
 	parser = argparse.ArgumentParser()
-	parser.add_argument("--root_dir", default="../data")
+	parser.add_argument("--root_dir", default="dataset_crops_split")
 	parser.add_argument("--batch_size", type=int, default=64)
-	parser.add_argument("--epochs", type=int, default=500)
+	parser.add_argument("--epochs", type=int, default=10)
 	parser.add_argument("--lr", type=float, default=1e-3)
 	parser.add_argument("--device", default="cuda")
-	parser.add_argument("--save_name", default="per_frame_cnn")
+	parser.add_argument("--save_name", default="proposal_classifier_10")
 	return parser.parse_args()
 
 
@@ -45,7 +45,7 @@ def main() -> None:
 	train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 	val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-	model = ProposalClassifier(num_classes=len(set(train_dataset.df["label"].tolist())))
+	model = ProposalClassifier(num_classes=2)
 	model.to(device)
 
 	optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)

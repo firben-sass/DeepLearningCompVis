@@ -65,9 +65,17 @@ def train(model, optimizer, num_epochs=10, save_name_model="model", train_loader
     
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
 
+    print(out_dict)
+    print(num_epochs)
+
+    train_acc = list(map(float, out_dict['train_acc']))
+    val_acc = list(map(float, out_dict['val_acc']))
+    train_loss = list(map(float, out_dict['train_loss']))
+    val_loss = list(map(float, out_dict['val_loss']))
+
     # --- Accuracy ---
-    ax[0].plot(range(1, num_epochs + 1), out_dict['train_acc'], label="Train Accuracy")
-    ax[0].plot(range(1, num_epochs + 1), out_dict['val_acc'], label="Validation Accuracy")
+    ax[0].plot(range(1, num_epochs + 1), train_acc, label="Train Accuracy")
+    ax[0].plot(range(1, num_epochs + 1), val_acc, label="Validation Accuracy")
     ax[0].set_title("Accuracy")
     ax[0].set_xlabel("Epoch")
     ax[0].set_ylabel("Accuracy")
@@ -75,8 +83,8 @@ def train(model, optimizer, num_epochs=10, save_name_model="model", train_loader
     ax[0].grid(True)
 
     # --- Loss ---
-    ax[1].plot(range(1, num_epochs + 1), out_dict['train_loss'], label="Train Loss")
-    ax[1].plot(range(1, num_epochs + 1), out_dict['val_loss'], label="Validation Loss")
+    ax[1].plot(range(1, num_epochs + 1), train_loss, label="Train Loss")
+    ax[1].plot(range(1, num_epochs + 1), val_loss, label="Validation Loss")
     ax[1].set_title("Loss")
     ax[1].set_xlabel("Epoch")
     ax[1].set_ylabel("Loss")

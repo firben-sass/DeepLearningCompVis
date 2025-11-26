@@ -213,7 +213,7 @@ class BoundingBoxDataset(torch.utils.data.Dataset):
 class PotholeDataset(torch.utils.data.Dataset):
     """Dataset for pothole detection (training and validation)"""
     
-    def _init_(self, root_dir, split='train', transform=None):
+    def __init__(self, root_dir, split='train', transform=None):
         """
         Args:
             root_dir: Root directory containing train/val/test folders
@@ -247,10 +247,10 @@ class PotholeDataset(torch.utils.data.Dataset):
         print(f"  - Potholes: {sum(1 for _, label in self.samples if label == 1)}")
         print(f"  - Background: {sum(1 for _, label in self.samples if label == 0)}")
     
-    def _len_(self):
+    def __len__(self):
         return len(self.samples)
     
-    def _getitem_(self, idx):
+    def __getitem__(self, idx):
         img_path, label = self.samples[idx]
         
         # Load image
