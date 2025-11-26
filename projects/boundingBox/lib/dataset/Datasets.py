@@ -208,3 +208,56 @@ class BoundingBoxDataset(torch.utils.data.Dataset):
             target = self.target_transform(target)
 
         return transformed, target
+    
+
+class PotholeDataset(torch.utils.data.Dataset):
+    """Dataset for pothole detection (training and validation)"""
+    
+    def _init_(self, root_dir, split='train', transform=None):
+        """
+        Args:
+            root_dir: Root directory containing train/val/test folders
+            split: 'train' or 'val'
+            transform: Optional transform to be applied on images
+        """
+        self.root_dir = root_dir
+        self.split = split
+        self.transform = transform
+        
+        # Paths to positive and negative samples
+        self.pothole_dir = os.path.join(root_dir, split, 'potholes')
+        self.background_dir = os.path.join(root_dir, split, 'background')
+        
+        # Load file paths and labels
+        self.samples = []
+        
+        # Add pothole samples (label = 1)
+        if os.path.exists(self.pothole_dir):
+            pothole_files = [f for f in os.listdir(self.pothole_dir) if f.endswith('.png')]
+            for fname in pothole_files:
+                self.samples.append((os.path.join(self.pothole_dir, fname), 1))
+        
+        # Add background samples (label = 0)
+        if os.path.exists(self.background_dir):
+            background_files = [f for f in os.listdir(self.background_dir) if f.endswith('.png')]
+            for fname in background_files:
+                self.samples.append((os.path.join(self.background_dir, fname), 0))
+        
+        print(f"{split.upper()} dataset: {len(self.samples)} samples")
+        print(f"  - Potholes: {sum(1 for _, label in self.samples if label == 1)}")
+        print(f"  - Background: {sum(1 for _, label in self.samples if label == 0)}")
+    
+    def _len_(self):
+        return len(self.samples)
+    
+    def _getitem_(self, idx):
+        img_path, label = self.samples[idx]
+        
+        # Load image
+        image = Image.open(img_path).convert('RGB')
+        
+        # Apply transforms
+        if self.transform:
+            image = self.transform(image)
+        
+        return image, label
