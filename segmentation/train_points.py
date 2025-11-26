@@ -89,7 +89,7 @@ train_loader, val_loader, test_loader = create_dataloaders(
     num_negative_points=args.num_negative_points,
     random_seed=args.random_seed,
     sampling_strategy=args.sampling_strategy,
-    image_size= args.image_size,
+    image_size= (args.image_size, args.image_size),
 )
 
 # ============================================================================
