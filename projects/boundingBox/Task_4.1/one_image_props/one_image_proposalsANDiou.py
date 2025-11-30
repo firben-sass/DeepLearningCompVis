@@ -3,11 +3,6 @@ import os
 import numpy as np
 import xml.etree.ElementTree as ET
 
-RESIZE_W, RESIZE_H = 600, 600
-IOU_THRESH = 0.5
-MAX_PROPOSALS = 1000
-
-model_path = "/Users/dani/Desktop/gitt/DeepLearningCompVis/projects/boundingBox/Task_4.1/model.yml"
 
 def xywh_to_xyxy(b):
     x, y, w, h = b
@@ -49,20 +44,19 @@ def parse_gt_boxes_resized(xml_path, resize_w, resize_h):
         boxes.append([xmin, ymin, xmax, ymax])
     return boxes
 
-
-
-def get_proposals_for_image(image_path, xml_path=None, iou_thresh=0.5, top_k=None):
+def get_proposals_for_image(image_path, xml_path=None, iou_thresh=0.5, top_k=None, resize_img=(600, 600), max_proposals=1000):
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    MODEL_PATH = os.path.join(SCRIPT_DIR, "..", "model.yml")
 
     img = cv2.imread(image_path)
     if img is None:
         raise FileNotFoundError(f"Could not load {image_path}")
 
+    img_resized = cv2.resize(img, resize_img)
 
-    img_resized = cv2.resize(img, (RESIZE_W, RESIZE_H))
-
-    edge_detector = cv2.ximgproc.createStructuredEdgeDetection(model_path)
+    edge_detector = cv2.ximgproc.createStructuredEdgeDetection(MODEL_PATH)
     edge_boxes = cv2.ximgproc.createEdgeBoxes()
-    edge_boxes.setMaxBoxes(MAX_PROPOSALS)
+    edge_boxes.setMaxBoxes(max_proposals)
 
     rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     edges = edge_detector.detectEdges(rgb)
@@ -81,7 +75,7 @@ def get_proposals_for_image(image_path, xml_path=None, iou_thresh=0.5, top_k=Non
     root = tree.getroot()
     w_orig = float(root.find("size/width").text)
     h_orig = float(root.find("size/height").text)
-    gt_boxes = parse_gt_boxes_resized(xml_path, RESIZE_W, RESIZE_H)
+    gt_boxes = parse_gt_boxes_resized(xml_path, *resize_img)
 
     #Iou calculation and filtering
     iou_scores = []
@@ -95,10 +89,11 @@ def get_proposals_for_image(image_path, xml_path=None, iou_thresh=0.5, top_k=Non
 
     return filtered_boxes, boxes_xyxy, iou_scores
 
+
 image_name = "potholes12.png"
 
-image_path = os.path.join("potholes/images", image_name)
-xml_path = os.path.join("potholes/annotations", image_name.replace(".png", ".xml"))
+image_path = os.path.join("/work3/s204164/DeepLearningCompVis/projects/boundingBox/data/images", image_name)
+xml_path = os.path.join("/work3/s204164/DeepLearningCompVis/projects/boundingBox/data/annotations", image_name.replace(".png", ".xml"))
 
 filtered, all_props, scores = get_proposals_for_image(
     image_path,

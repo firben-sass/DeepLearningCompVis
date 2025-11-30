@@ -4,8 +4,8 @@ import numpy as np
 from collections import defaultdict
 
 # ========= CONFIG =========
-images_folder = "/home/tony/Desktop/Vision/DeepLearningCompVis/projects/boundingBox/Task_4.1/potholes/images"
-proposals_folder = "/home/tony/Desktop/Vision/DeepLearningCompVis/projects/boundingBox/Task_4.1/coord_proposals"
+images_folder = "/work3/s204164/DeepLearningCompVis/projects/boundingBox/data/images"
+proposals_folder = "/work3/s204164/DeepLearningCompVis/projects/boundingBox/Task_4.1/coord_proposals"
 PROPOSAL_FILE = os.path.join(proposals_folder, "reduced_coords_xyxy.npy")
 RESIZE_W, RESIZE_H = 600, 600
 CROP_SIZE = 224

@@ -1,5 +1,3 @@
-"""Segmentation utilities package."""
+"""Bounding box utilities package."""
 
-from . import measure
-
-__all__ = ["measure"]
+__all__: list[str] = []

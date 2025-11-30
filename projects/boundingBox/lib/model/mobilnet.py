@@ -1,6 +1,8 @@
-
+import os
+import torch
 import torch.nn as nn
 from torchvision import models
+
 
 class ProposalClassifier(nn.Module):
     """
@@ -28,3 +30,21 @@ class ProposalClassifier(nn.Module):
         x = self.avgpool(x)
         x = self.classifier(x)
         return x
+
+
+def load_proposal_classifier(weights_path, num_classes=2, device=None, pretrained=False, strict=True):
+    """Instantiate ProposalClassifier and load saved weights from ``weights_path``."""
+    if not weights_path or not os.path.isfile(weights_path):
+        raise FileNotFoundError(f"Cannot load ProposalClassifier weights, file not found: {weights_path}")
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    elif isinstance(device, str):
+        device = torch.device(device)
+
+    model = ProposalClassifier(num_classes=num_classes, pretrained=pretrained).to(device)
+
+    checkpoint = torch.load(weights_path, map_location=device)
+    state_dict = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
+    model.load_state_dict(state_dict, strict=strict)
+    return model
