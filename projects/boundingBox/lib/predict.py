@@ -12,7 +12,7 @@ from .tools.iou import IOU
 from .tools.visualisation import visualize_bboxes_with_patches
 from .tools.load_bounding_boxes import load_bounding_boxes
 from .nms import nms
-from .average_precision import average_precision, precision_recall_curve
+from .average_precision import match_detections_across_dataset, average_precision, precision_recall_curve
 
 
 def get_probs(patches, model, resize_img, batch_size=64):
@@ -87,12 +87,12 @@ def get_image_and_xml_paths(split_info_path):
 
 
 def main():
-    iou_thresh = 0.4
-    confidence_thresh = 0.7
-    top_k = 300
+    iou_thresh = 0.1
+    confidence_thresh = 0.99
+    top_k = 400
     resize_img = (600, 600)
     resize_patches = (224, 224)
-    max_proposals = 1000
+    max_proposals = 2000
 
     split_info_path = '/work3/s204164/DeepLearningCompVis/projects/boundingBox/Task_4.1/coord_proposals/dataset_crops_split/split_info.npy'
     image_paths, xml_paths = get_image_and_xml_paths(split_info_path)
@@ -105,13 +105,18 @@ def main():
         strict=True
     )
 
-    images = load_images(image_paths, resize_img)
-
     all_filtered_boxes = []
     all_filtered_probs = []
     all_true_boxes = []
 
-    for index, image in enumerate(images):
+    image_paths = image_paths[:10]
+    xml_paths = xml_paths[:10]
+
+    for index, image_path in enumerate(image_paths):
+        # if index != image_index:
+        #     continue
+
+        image = load_and_resize_image(image_path, resize_img)
         boxes_xyxy = get_proposals_for_image(image, top_k=top_k, max_proposals=max_proposals)
         # print("boxes_xyxy len:", len(boxes_xyxy))
         # print("First coords:", boxes_xyxy[0])
@@ -132,7 +137,7 @@ def main():
         # )
 
         true_boxes = load_bounding_boxes(xml_paths[index], resize_img)
-        all_true_boxes.extend(true_boxes)
+        all_true_boxes.append(np.array(true_boxes))
 
         filtered_boxes, filtered_probs = nms(
             boxes_xyxy,
@@ -140,13 +145,11 @@ def main():
             confidence_threshold=confidence_thresh,
             IOU_threshold=iou_thresh,
         )
-        if len(filtered_boxes) == 0:
-            continue
 
         all_filtered_boxes.append(filtered_boxes)
         all_filtered_probs.append(filtered_probs)
         # visualize_bboxes_with_patches(
-        #     image=images[0],
+        #     image=image,
         #     boxes=filtered_boxes,
         #     probabilities=filtered_probs,
         #     output_path="/work3/s204164/DeepLearningCompVis/projects/boundingBox/outputs/annotated_image.png",
@@ -157,30 +160,13 @@ def main():
         #     figsize=(10, 10),
         # )
 
-    aggregated_boxes = np.vstack(all_filtered_boxes) if all_filtered_boxes else np.zeros((0, 4))
-    aggregated_probs = (
-        np.concatenate(all_filtered_probs)
-        if all_filtered_probs
-        else np.zeros(0, dtype=float)
-    )
-    aggregated_true = (
-        np.asarray(all_true_boxes, dtype=float)
-        if all_true_boxes
-        else np.zeros((0, 4))
-    )
-
-    average_precision_value, recall_precision = average_precision(
-        aggregated_boxes,
-        aggregated_probs,
-        aggregated_true,
-        iou_thresh,
-    )
-    print("Average Precision:", average_precision_value)
+    tp, fp, num_true = match_detections_across_dataset(all_filtered_boxes, all_filtered_probs, all_true_boxes, 0.5)
+    ap, recalls, precisions = average_precision(all_filtered_boxes, all_filtered_probs, all_true_boxes, 0.5)
+    print("Average Precision:", ap)
     precision_recall_curve(
-        aggregated_boxes,
-        aggregated_probs,
-        aggregated_true,
-        iou_thresh,
+        ap,
+        recalls,
+        precisions,
         save_path="/work3/s204164/DeepLearningCompVis/projects/boundingBox/outputs/precision_recall_curve.png",
     )
 

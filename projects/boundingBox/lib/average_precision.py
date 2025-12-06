@@ -5,78 +5,62 @@ import numpy as np
 from boundingBox.lib.tools.iou import IOU
 
 
-def _ensure_ndarray(values):
-    """Convert list-like data to a float ndarray while preserving length checks."""
-    return np.asarray(values, dtype=float) if len(values) else np.zeros((0,))
+def match_detections(boxes, scores, gt, IOU_threshold):
+    confidence_order = np.argsort(scores)[::-1]
+    boxes = boxes[confidence_order]
+    scores = scores[confidence_order]
+    matched_gt = np.full(gt.shape[0], False)
+    tp_fp = []
 
-
-def _match_detections(boxes, scores, true_boxes, IOU_threshold):
-    """Greedily assign detections to ground-truth boxes in score order."""
-    boxes = _ensure_ndarray(boxes)
-    scores = _ensure_ndarray(scores)
-    true_boxes = _ensure_ndarray(true_boxes)
-
-    if boxes.size == 0:
-        return np.zeros(0, dtype=float), np.zeros(0, dtype=float)
-
-    order = np.argsort(scores)[::-1]
-    matched_true = np.zeros(len(true_boxes), dtype=bool)
-    true_positive = np.zeros(len(order), dtype=float)
-    false_positive = np.zeros(len(order), dtype=float)
-
-    for rank, det_idx in enumerate(order):
-        if len(true_boxes) == 0:
-            false_positive[rank] = 1.0
-            continue
-
-        detection_box = boxes[det_idx]
-        ious = np.array([IOU(detection_box, gt_box) for gt_box in true_boxes])
-        best_gt = np.argmax(ious)
-        best_iou = ious[best_gt]
-
-        if best_iou >= IOU_threshold and not matched_true[best_gt]:
-            true_positive[rank] = 1.0
-            matched_true[best_gt] = True
+    for i, box in enumerate(boxes):
+        ious = []
+        for j, gt_box in enumerate(gt):
+            iou = IOU(box, gt_box)
+            ious.append(iou)
+        ious = np.array(ious)
+        ious[matched_gt] = 0
+        max_match = np.argmax(ious)
+        if ious[max_match] > IOU_threshold:
+            matched_gt[max_match] = True
+            tp_fp.append([scores[i], 1])
         else:
-            false_positive[rank] = 1.0
+            tp_fp.append([scores[i], 0])
 
-    return true_positive, false_positive
+    return np.asarray(tp_fp)
 
-def average_precision(boxes, scores, true_boxes, IOU_threshold):
-    boxes = _ensure_ndarray(boxes)
-    scores = _ensure_ndarray(scores)
-    true_boxes = _ensure_ndarray(true_boxes)
-    num_true = len(true_boxes)
 
-    if num_true == 0:
-        return 0.0, np.zeros((1, 2))
+def match_detections_across_dataset(boxes, scores, gt, IOU_threshold):
+    tp_fp_blocks = []
+    for i, boxes_ in enumerate(boxes):
+        tp_fp_blocks.append(match_detections(boxes_, scores[i], gt[i], IOU_threshold))
+    tp_fp = np.vstack(tp_fp_blocks)
+    tp_fp = tp_fp[tp_fp[:, 0].argsort()]
+    return tp_fp
 
-    tp, fp = _match_detections(boxes, scores, true_boxes, IOU_threshold)
-    if tp.size == 0:
-        recall = np.array([0.0])
-        precision = np.array([0.0])
-    else:
-        tp_cum = np.cumsum(tp)
-        fp_cum = np.cumsum(fp)
-        recall = tp_cum / num_true
-        precision = tp_cum / np.maximum(tp_cum + fp_cum, 1e-12)
 
-    recall = np.concatenate(([0.0], recall))
-    precision = np.concatenate(([1.0], precision))
-    precision = np.maximum.accumulate(precision[::-1])[::-1]
-    ap = np.trapz(precision, recall)
-    rp = np.column_stack((recall, precision))
+def average_precision(boxes, scores, gt, IOU_threshold):
+    tp_fp = match_detections_across_dataset(boxes, scores, gt, IOU_threshold)
+    tp_count = 0.0
+    fp_count = 0.0
+    precisions = []
+    recalls = [0]
+    total_positives = np.sum([len(gt_) for gt_ in gt])
+    for k in range(len(tp_fp)):
+        if tp_fp[k,1]:
+            tp_count += 1.0
+        else:
+            fp_count += 1.0
+        precisions.append(tp_count / (k+1))
+        recalls.append(tp_count / total_positives)
+    
+    ap = np.sum([(recalls[i+1] - recalls[i]) * precisions[i] for i in range(len(precisions))])
+    return ap, recalls, precisions
 
-    return ap, rp
 
-def precision_recall_curve(boxes, scores, true_boxes, IOU_threshold, save_path):
+def precision_recall_curve(average_precision_value, recalls, precisions, save_path):
     """Generate and save a precision-recall curve for the given detections."""
-    average_precision_value, recall_precision = average_precision(
-        boxes,
-        scores,
-        true_boxes,
-        IOU_threshold,
-    )
+
+    recall_precision = np.array(list(zip(recalls[1:], precisions)))
 
     if recall_precision.size == 0:
         print("Warning: recall/precision array is empty; cannot plot curve.")
@@ -103,4 +87,3 @@ def precision_recall_curve(boxes, scores, true_boxes, IOU_threshold, save_path):
     fig.tight_layout()
     fig.savefig(save_path)
     plt.close(fig)
-
